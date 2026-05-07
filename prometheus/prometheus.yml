@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: ecommerce-dev
+
+scrape_configs:
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend-1:8000", "backend-2:8000"]
+        labels:
+          service: ecommerce-backend
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

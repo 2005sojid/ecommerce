@@ -1,0 +1,40 @@
+# ─── Python ────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# ─── Node / frontend / build artefacts ─────────────────────
+node_modules/
+dist/
+build/
+target/
+.next/
+.cache/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# ─── Secrets & local config ────────────────────────────────
+.env
+.env.*.local
+
+# ─── Logs ──────────────────────────────────────────────────
+*.log
+
+# ─── Editor / OS ───────────────────────────────────────────
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
