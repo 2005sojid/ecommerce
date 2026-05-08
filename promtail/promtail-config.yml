@@ -9,7 +9,6 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
-  # Stdout logs of all docker containers
   - job_name: docker
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
@@ -23,7 +22,6 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: service
     pipeline_stages:
-      # backend writes JSON via structlog -- parse so level/event become labels
       - match:
           selector: '{service=~"backend-.*"}'
           stages:

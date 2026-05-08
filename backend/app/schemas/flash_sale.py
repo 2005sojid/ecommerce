@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
-
 class FlashSaleCreate(BaseModel):
     product_id: uuid.UUID
     sale_price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
@@ -11,7 +10,6 @@ class FlashSaleCreate(BaseModel):
     start_at: datetime
     end_at: datetime
     initial_stock: int = Field(gt=0)
-
 
 class FlashSaleOut(BaseModel):
     id: uuid.UUID
@@ -26,7 +24,6 @@ class FlashSaleOut(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 class FlashSaleClaimResponse(BaseModel):
     sale_id: uuid.UUID

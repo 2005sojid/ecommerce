@@ -11,7 +11,6 @@ export default function OrderDetail() {
   useEffect(() => {
     api.get(`/orders/${id}`).then((r) => setOrder(r.data));
 
-    // Real-time WebSocket subscription
     const token = getToken();
     if (!token) return;
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -24,7 +23,7 @@ export default function OrderDetail() {
         setOrder((o: any) => (o ? { ...o, status: data.new_status } : o));
       }
     };
-    // ping every 25s (keepalive)
+
     const interval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 25000);

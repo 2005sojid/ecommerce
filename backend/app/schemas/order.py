@@ -2,13 +2,10 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
-
 from app.models.order import OrderStatus
-
 
 class CheckoutRequest(BaseModel):
     shipping_address: str = Field(min_length=5)
-
 
 class OrderItemOut(BaseModel):
     product_id: uuid.UUID
@@ -18,7 +15,6 @@ class OrderItemOut(BaseModel):
     class Config:
         from_attributes = True
 
-
 class OrderEventOut(BaseModel):
     from_status: str | None
     to_status: str
@@ -27,7 +23,6 @@ class OrderEventOut(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 class OrderOut(BaseModel):
     id: str
@@ -40,11 +35,9 @@ class OrderOut(BaseModel):
     class Config:
         from_attributes = True
 
-
 class OrderDetail(OrderOut):
     items: list[OrderItemOut] = []
     events: list[OrderEventOut] = []
-
 
 class OrderStatusUpdate(BaseModel):
     status: OrderStatus

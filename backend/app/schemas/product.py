@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
-
 class ProductBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     slug: str = Field(min_length=1, max_length=280)
@@ -13,10 +12,8 @@ class ProductBase(BaseModel):
     image_url: str | None = None
     is_active: bool = True
 
-
 class ProductCreate(ProductBase):
     initial_quantity: int = Field(ge=0, default=0)
-
 
 class ProductUpdate(BaseModel):
     name: str | None = None
@@ -25,7 +22,6 @@ class ProductUpdate(BaseModel):
     category_id: uuid.UUID | None = None
     image_url: str | None = None
     is_active: bool | None = None
-
 
 class ProductOut(BaseModel):
     id: uuid.UUID
@@ -40,7 +36,6 @@ class ProductOut(BaseModel):
 
     class Config:
         from_attributes = True
-
 
 class ProductDetail(ProductOut):
     available_quantity: int = 0

@@ -1,44 +1,25 @@
 import uuid
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-
 from app.deps import AdminUser, DBSession
 from app.models.inventory import Inventory
+router = APIRouter(prefix='/api/inventory', tags=['Inventory'])
 
-router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
-
-
-@router.get("/{product_id}")
+@router.get('/{product_id}')
 async def get_inventory(product_id: uuid.UUID, db: DBSession) -> dict:
-    """Current stock for a product."""
-    inv = (
-        await db.execute(select(Inventory).where(Inventory.product_id == product_id))
-    ).scalar_one_or_none()
+    inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
     if inv is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Inventory not found")
-    return {
-        "product_id": str(inv.product_id),
-        "quantity": inv.quantity,
-        "reserved": inv.reserved,
-        "available": inv.quantity - inv.reserved,
-        "warehouse_location": inv.warehouse_location,
-    }
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Inventory not found')
+    return {'product_id': str(inv.product_id), 'quantity': inv.quantity, 'reserved': inv.reserved, 'available': inv.quantity - inv.reserved, 'warehouse_location': inv.warehouse_location}
 
-
-@router.patch("/{product_id}")
-async def adjust_inventory(
-    product_id: uuid.UUID, delta: int, _: AdminUser, db: DBSession
-) -> dict:
-    """Adjust stock by delta (admin only). Used for warehouse replenishment."""
-    inv = (
-        await db.execute(select(Inventory).where(Inventory.product_id == product_id))
-    ).scalar_one_or_none()
+@router.patch('/{product_id}')
+async def adjust_inventory(product_id: uuid.UUID, delta: int, _: AdminUser, db: DBSession) -> dict:
+    inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
     if inv is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Inventory not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Inventory not found')
     new_qty = inv.quantity + delta
     if new_qty < 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Resulting quantity would be negative")
+        raise HTTPException(status.HTTP_409_CONFLICT, 'Resulting quantity would be negative')
     inv.quantity = new_qty
     await db.commit()
-    return {"product_id": str(product_id), "quantity": inv.quantity, "reserved": inv.reserved}
+    return {'product_id': str(product_id), 'quantity': inv.quantity, 'reserved': inv.reserved}
