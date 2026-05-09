@@ -8,21 +8,14 @@ Below are textual descriptions of the three required diagrams (Mermaid flowchart
 
 ```mermaid
 flowchart LR
-    Start([Start: Order Placed]) --> VP[Verify Payment]
-    VP --> G1{Payment OK?}
-    G1 -- No --> Cancel[Cancel Order]
-    Cancel --> EndCancel([End: Cancelled])
-    G1 -- Yes --> Confirm[Confirm Order<br/>status=confirmed]
-    Confirm --> Process[Process & Pack<br/>status=processing->packed]
-    Process --> Ship[Ship<br/>status=shipped]
-    Ship --> Deliver[Deliver<br/>status=delivered]
-    Deliver --> EndOk([End: Complete])
-
-    Process -. boundary error .-> StockErr[Insufficient Stock]
-    StockErr --> Cancel
+    Start([Start: order.created]) --> Confirm[Advance: confirmed<br/>delay 2.0s]
+    Confirm --> Process[Advance: processing<br/>delay 0.5s]
+    Process --> Pack[Advance: packed<br/>delay 3.0s]
+    Pack --> Ship[Advance: shipped<br/>delay 1.0s]
+    Ship --> EndOk([End: shipped])
 ```
 
-Each transition inserts a row into `order_events` (audit trail) and publishes an event to the RabbitMQ topic `order.*`. The consumer is `app/workers/order_pipeline.py`.
+Stock is decremented synchronously at checkout (`order_service.checkout`); insufficient stock raises HTTP 409 before any event is published, so the pipeline has no cancel branch. Each transition writes a row to `order_events`, broadcasts the new status over WebSocket, and republishes the next routing key on the `ecommerce` exchange. Consumer: `app/workers/order_pipeline.py` (`NEXT_STAGE` map). `shipped` is terminal — there is no `delivered` stage in the running code.
 
 ---
 
@@ -30,14 +23,16 @@ Each transition inserts a row into `order_events` (audit trail) and publishes an
 
 ```mermaid
 flowchart LR
-    Timer([Timer: 02:00 UTC daily]) --> Q[Query yesterday's orders<br/>status <> cancelled]
-    Q --> Agg[Aggregate metrics<br/>order_count, revenue, unique_customers]
-    Agg --> R[REFRESH MATERIALIZED VIEW<br/>mv_daily_sales CONCURRENTLY]
-    R --> Log[Log results]
+    Timer([Timer: cron 02:00 daily]) --> Refresh[REFRESH MATERIALIZED VIEW<br/>CONCURRENTLY mv_daily_sales]
+    Refresh --> G1{Concurrent refresh OK?}
+    G1 -- Yes --> Commit[Commit]
+    G1 -- No --> Plain[REFRESH MATERIALIZED VIEW<br/>mv_daily_sales]
+    Plain --> Commit
+    Commit --> Log[Log refreshed date]
     Log --> End([End])
 ```
 
-Implementation: `app/batch/daily_sales.py` (APScheduler cron `hour=2`).
+Aggregation (`order_count`, `total_revenue`, `unique_customers`, filtered to `status <> 'cancelled'`) lives in the materialized view itself, defined in `alembic/versions/006_mv_daily_sales.py`. The scheduled job only refreshes the view; it does not query or aggregate orders directly. Implementation: `app/batch/daily_sales.py` (APScheduler cron `hour=2, minute=0`).
 
 ---
 
