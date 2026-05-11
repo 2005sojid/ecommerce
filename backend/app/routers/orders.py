@@ -15,7 +15,7 @@ _order_service = OrderService(CartService(redis_client))
 
 @router.post('', response_model=OrderDetail, status_code=status.HTTP_201_CREATED)
 async def checkout(payload: CheckoutRequest, user: CurrentUser, db: DBSession) -> OrderDetail:
-    order = await _order_service.checkout(user.id, payload.shipping_address, db)
+    order = await _order_service.checkout(user.id, payload.shipping_address, db, coupon_code=payload.coupon_code)
     full = (await db.execute(select(Order).where(Order.id == order.id).options(selectinload(Order.items), selectinload(Order.events)))).scalar_one()
     return OrderDetail.model_validate(full)
 
@@ -37,7 +37,7 @@ async def get_order(order_id: str, user: CurrentUser, db: DBSession) -> OrderDet
 
 @router.patch('/{order_id}/status', response_model=OrderOut)
 async def update_status(order_id: str, payload: OrderStatusUpdate, _: AdminUser, db: DBSession) -> OrderOut:
-    order = await _order_service.update_status(order_id, payload.status, payload.reason, db)
+    order = await _order_service.update_status(order_id, payload.status, payload.reason, db, tracking_number=payload.tracking_number)
     return OrderOut.model_validate(order)
 
 @router.get('/{order_id}/events', response_model=list[OrderEventOut])

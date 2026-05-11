@@ -41,3 +41,6 @@ class ProductDetail(ProductOut):
     available_quantity: int = 0
     average_rating: float | None = None
     reviews_count: int = 0
+    seller_id: uuid.UUID | None = None
+    seller_slug: str | None = None
+    seller_store_name: str | None = None

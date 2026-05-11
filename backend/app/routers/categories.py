@@ -52,3 +52,39 @@ async def create_category(payload: CategoryCreate, _: AdminUser, db: DBSession) 
     await db.refresh(cat)
     await cache_delete(CATEGORIES_TREE_KEY)
     return CategoryOut.model_validate(cat)
+
+
+@router.patch('/{category_id}', response_model=CategoryOut)
+async def update_category(category_id: uuid.UUID, payload: CategoryCreate, _: AdminUser, db: DBSession) -> CategoryOut:
+    cat = await db.get(Category, category_id)
+    if not cat:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Category not found')
+    if payload.slug != cat.slug:
+        existing = (await db.execute(select(Category).where(Category.slug == payload.slug))).scalar_one_or_none()
+        if existing and existing.id != category_id:
+            raise HTTPException(status.HTTP_409_CONFLICT, 'Category slug already exists')
+    cat.name = payload.name
+    cat.slug = payload.slug
+    cat.parent_id = payload.parent_id
+    await db.commit()
+    await db.refresh(cat)
+    await cache_delete(CATEGORIES_TREE_KEY)
+    return CategoryOut.model_validate(cat)
+
+
+@router.delete('/{category_id}', status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(category_id: uuid.UUID, _: AdminUser, db: DBSession):
+    from fastapi.responses import Response
+    cat = await db.get(Category, category_id)
+    if not cat:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Category not found')
+    has_products = (await db.execute(select(func.count()).select_from(Product).where(Product.category_id == category_id))).scalar_one()
+    if has_products:
+        raise HTTPException(status.HTTP_409_CONFLICT, 'Category has products')
+    has_children = (await db.execute(select(func.count()).select_from(Category).where(Category.parent_id == category_id))).scalar_one()
+    if has_children:
+        raise HTTPException(status.HTTP_409_CONFLICT, 'Category has children')
+    await db.delete(cat)
+    await db.commit()
+    await cache_delete(CATEGORIES_TREE_KEY)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -11,12 +11,14 @@ export default function Cart() {
   };
   useEffect(load, []);
 
-  const update = async (pid: string, qty: number) => {
-    await api.patch(`/cart/items/${pid}`, { quantity: qty });
+  const update = async (pid: string, qty: number, variantId?: string | null) => {
+    const qs = variantId ? `?variant_id=${variantId}` : "";
+    await api.patch(`/cart/items/${pid}${qs}`, { quantity: qty });
     load();
   };
-  const remove = async (pid: string) => {
-    await api.delete(`/cart/items/${pid}`);
+  const remove = async (pid: string, variantId?: string | null) => {
+    const qs = variantId ? `?variant_id=${variantId}` : "";
+    await api.delete(`/cart/items/${pid}${qs}`);
     load();
   };
   const clear = async () => {
@@ -36,16 +38,16 @@ export default function Cart() {
         </thead>
         <tbody>
           {cart.items.map((it: any) => (
-            <tr key={it.product_id}>
-              <td>{it.name}</td>
+            <tr key={`${it.product_id}:${it.variant_id || ""}`}>
+              <td>{it.name}{it.variant_name ? ` — ${it.variant_name}` : ""}</td>
               <td>${it.price}</td>
               <td>
                 <input className="input" type="number" min={0} value={it.quantity}
-                       onChange={(e) => update(it.product_id, parseInt(e.target.value || "0"))}
+                       onChange={(e) => update(it.product_id, parseInt(e.target.value || "0"), it.variant_id)}
                        style={{ width: 70 }} />
               </td>
               <td className="price">${it.line_total}</td>
-              <td><button className="btn danger" onClick={() => remove(it.product_id)}>×</button></td>
+              <td><button className="btn danger" onClick={() => remove(it.product_id, it.variant_id)}>×</button></td>
             </tr>
           ))}
         </tbody>

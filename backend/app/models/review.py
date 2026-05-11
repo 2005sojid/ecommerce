@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Integer, Text, DateTime, ForeignKey, CheckConstraint, UniqueConstraint, func
+from sqlalchemy import Boolean, Integer, Text, DateTime, ForeignKey, CheckConstraint, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -14,5 +14,9 @@ class Review(Base):
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default='true')
+    seller_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seller_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    helpful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default='0')
     user = relationship('User', back_populates='reviews')
     product = relationship('Product', back_populates='reviews')

@@ -36,8 +36,8 @@ services:
     restart: "no"
 
   backend-1: &backend
-    build: ./backend
     image: ecommerce-backend:latest
+    pull_policy: never
     env_file: .env
     environment:
       INSTANCE_ID: "1"

@@ -9,7 +9,7 @@ from app.from_scratch.rate_limiter import RedisRateLimiter
 from app.logging_config import configure_logging
 from app.metrics import setup_metrics
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.routers import admin, auth, cart, categories, flash_sales, inventory, orders, products, reviews, ws
+from app.routers import admin, auth, cart, categories, flash_sales, inventory, orders, products, product_images, reviews, wishlist, addresses, notifications, sellers, coupons, returns, chat, ws_chat, settlements, ws
 from app.services.notification_service import event_bus
 from app.services.search_service import search_service
 from app.telemetry import setup_telemetry
@@ -37,7 +37,23 @@ async def lifespan(app: FastAPI):
         daily_sales.start()
     except Exception as exc:
         logger.warning('Scheduler startup failed: %s', exc)
+    try:
+        from app.batch import abandoned_cart, daily_settlement
+        from app.routers.ws import manager as ws_manager
+        await ws_manager.start_pubsub(redis_client)
+        abandoned_cart.start()
+        daily_settlement.start()
+    except Exception as exc:
+        logger.warning('startup of pubsub/batches failed: %s', exc)
     yield
+    try:
+        from app.batch import abandoned_cart as _ac, daily_settlement as _ds
+        from app.routers.ws import manager as ws_manager
+        await ws_manager.stop_pubsub()
+        _ac.shutdown()
+        _ds.shutdown()
+    except Exception:
+        pass
     daily_sales.shutdown()
     await event_bus.close()
     await redis_client.aclose()
@@ -52,12 +68,22 @@ setup_metrics(app)
 app.add_middleware(RateLimitMiddleware, limiter=RedisRateLimiter(redis_client, max_tokens=30, refill_rate=0.5), paths=['/api/flash-sales/', '/api/auth/login'])
 app.include_router(auth.router)
 app.include_router(products.router)
+app.include_router(product_images.router)
 app.include_router(categories.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
 app.include_router(inventory.router)
 app.include_router(flash_sales.router)
 app.include_router(reviews.router)
+app.include_router(wishlist.router)
+app.include_router(addresses.router)
+app.include_router(notifications.router)
+app.include_router(sellers.router)
+app.include_router(coupons.router)
+app.include_router(returns.router)
+app.include_router(chat.router)
+app.include_router(ws_chat.router)
+app.include_router(settlements.router)
 app.include_router(admin.router)
 app.include_router(ws.router)
 

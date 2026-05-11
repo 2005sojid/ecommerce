@@ -40,6 +40,7 @@ export default function OrderDetail() {
       <h1>Order <code>{order.id}</code></h1>
       <div className="card">
         Status: <span className={`badge ${order.status}`}>{order.status}</span>
+        {order.tracking_number && <p>Tracking: <code>{order.tracking_number}</code></p>}
         <p>Total: <span className="price">${order.total_amount}</span></p>
         <p className="muted">Shipping: {order.shipping_address}</p>
         <p className="muted">Created: {new Date(order.created_at).toLocaleString()}</p>
@@ -49,9 +50,12 @@ export default function OrderDetail() {
       <table className="card">
         <thead><tr><th>Product</th><th>Qty</th><th>Unit price</th></tr></thead>
         <tbody>
-          {order.items?.map((it: any) => (
-            <tr key={it.product_id}>
-              <td><code>{it.product_id.slice(0, 8)}…</code></td>
+          {order.items?.map((it: any, idx: number) => (
+            <tr key={`${it.product_id}:${it.variant_id || ""}:${idx}`}>
+              <td>
+                <code>{it.product_id.slice(0, 8)}…</code>
+                {it.variant_name ? ` — ${it.variant_name}` : ""}
+              </td>
               <td>{it.quantity}</td>
               <td>${it.unit_price}</td>
             </tr>

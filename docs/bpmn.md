@@ -1,25 +1,35 @@
-# BPMN -- Event Pipeline (R10)
+# BPMN — Event Pipelines (R10)
 
-Below are textual descriptions of the three required diagrams (Mermaid flowchart). For the report they are imported into bpmn.io / draw.io and exported as PNG/SVG.
+Textual descriptions of the runtime pipelines as Mermaid flowcharts. For the report they are imported into bpmn.io / draw.io and exported as PNG/SVG.
 
 ---
 
-## BPMN 1 -- Order Fulfilment Pipeline
+## BPMN 1 — Order Fulfilment Pipeline
 
 ```mermaid
 flowchart LR
-    Start([Start: order.created]) --> Confirm[Advance: confirmed<br/>delay 2.0s]
+    Checkout([Start: POST /api/orders]) --> Decrement[Decrement variant or inventory stock<br/>SELECT FOR UPDATE]
+    Decrement --> Coupon{coupon_code?}
+    Coupon -- Yes --> Apply[Validate + apply coupon<br/>discount on total]
+    Coupon -- No --> Persist
+    Apply --> Persist[Persist order + items + pending event]
+    Persist --> LowStock{remaining < 10?}
+    LowStock -- Yes --> NotifySeller[Notify seller user]
+    LowStock -- No --> Created
+    NotifySeller --> Created([Publish order.created])
+    Created --> Confirm[Advance: confirmed<br/>delay 2.0s]
     Confirm --> Process[Advance: processing<br/>delay 0.5s]
     Process --> Pack[Advance: packed<br/>delay 3.0s]
     Pack --> Ship[Advance: shipped<br/>delay 1.0s]
-    Ship --> EndOk([End: shipped])
+    Ship --> Delivered[Manual: admin PATCH /status<br/>optional tracking_number]
+    Delivered --> EndOk([End: delivered])
 ```
 
-Stock is decremented synchronously at checkout (`order_service.checkout`); insufficient stock raises HTTP 409 before any event is published, so the pipeline has no cancel branch. Each transition writes a row to `order_events`, broadcasts the new status over WebSocket, and republishes the next routing key on the `ecommerce` exchange. Consumer: `app/workers/order_pipeline.py` (`NEXT_STAGE` map). `shipped` is terminal — there is no `delivered` stage in the running code.
+Stock is decremented synchronously at checkout (`order_service.checkout`). When a `variant_id` is on the cart row the lock and decrement target `product_variants`; otherwise legacy `inventory`. Insufficient stock raises HTTP 409 before any event is published, so the pipeline has no cancel branch. Each transition writes a row to `order_events`, broadcasts the new status over WebSocket (via the Redis pub/sub-backed manager), and republishes the next routing key on the `ecommerce` exchange. Auto-advance pipeline implemented in `app/workers/order_pipeline.py` (`NEXT_STAGE` map) terminates at `shipped`; `delivered` is reached only via admin `PATCH /api/orders/{id}/status` (which also accepts an optional `tracking_number`). Reaching `delivered` or `shipped` unlocks Return creation.
 
 ---
 
-## BPMN 2 -- Daily Sales Batch
+## BPMN 2 — Daily Sales Batch
 
 ```mermaid
 flowchart LR
@@ -32,11 +42,11 @@ flowchart LR
     Log --> End([End])
 ```
 
-Aggregation (`order_count`, `total_revenue`, `unique_customers`, filtered to `status <> 'cancelled'`) lives in the materialized view itself, defined in `alembic/versions/006_mv_daily_sales.py`. The scheduled job only refreshes the view; it does not query or aggregate orders directly. Implementation: `app/batch/daily_sales.py` (APScheduler cron `hour=2, minute=0`).
+Aggregation (`order_count`, `total_revenue`, `unique_customers`, filtered to `status <> 'cancelled'`) lives in the materialized view itself, defined in `alembic/versions/006_mv_daily_sales.py`. Implementation: `app/batch/daily_sales.py`.
 
 ---
 
-## BPMN 3 -- Search Index Sync
+## BPMN 3 — Search Index Sync
 
 ```mermaid
 flowchart LR
@@ -50,3 +60,55 @@ flowchart LR
 ```
 
 Implementation: `app/workers/search_sync.py`. Queue `search_sync` is bound to exchange `ecommerce` by routing key `product.*`.
+
+---
+
+## BPMN 4 — Daily Settlement Batch
+
+```mermaid
+flowchart LR
+    Timer([Timer: cron 02:00 daily UTC]) --> Aggregate[SELECT per-seller gross revenue<br/>and order count for yesterday<br/>status IN delivered, shipped]
+    Aggregate --> Compute[fees = 5% of gross<br/>net = gross - fees]
+    Compute --> Upsert[INSERT settlements ON CONFLICT<br/>seller_id, settlement_date<br/>DO UPDATE]
+    Upsert --> End([End])
+```
+
+Implementation: `app/batch/daily_settlement.py`. Sellers view payouts via `GET /api/settlements/me`.
+
+---
+
+## BPMN 5 — Abandoned Cart Batch
+
+```mermaid
+flowchart LR
+    Timer([Timer: hourly]) --> Scan[Redis SCAN cart:*]
+    Scan --> Loop{For each user_id}
+    Loop --> HasItems{HLEN > 0?}
+    HasItems -- No --> Loop
+    HasItems -- Yes --> Sentinel{Sentinel<br/>notif_sent:abandoned_cart:user<br/>exists?}
+    Sentinel -- Yes --> Loop
+    Sentinel -- No --> Notify[notification_center.create<br/>type=abandoned_cart, link=/cart]
+    Notify --> Mark[SET sentinel EX 86400]
+    Mark --> Loop
+    Loop --> End([End])
+```
+
+Implementation: `app/batch/abandoned_cart.py`. The sentinel TTL ensures at most one nudge per user per 24 h.
+
+---
+
+## BPMN 6 — WebSocket Cross-Replica Fanout
+
+```mermaid
+flowchart LR
+    Trigger([Backend replica N: e.g. order status change]) --> Publish[redis_client.publish<br/>channel = ws:order:ORDER_ID]
+    Publish --> Bus[(Redis Pub/Sub)]
+    Bus --> Sub1[Replica 1 pubsub loop<br/>psubscribe ws:*]
+    Bus --> Sub2[Replica 2 pubsub loop<br/>psubscribe ws:*]
+    Sub1 --> Local1[ConnectionManager._broadcast_local<br/>send_json to sockets in channel]
+    Sub2 --> Local2[ConnectionManager._broadcast_local<br/>send_json to sockets in channel]
+    Local1 --> Client1([Subscribed buyers / admins on replica 1])
+    Local2 --> Client2([Subscribed buyers / admins on replica 2])
+```
+
+Implementation: `app/routers/ws.py`. `ConnectionManager.broadcast(channel, payload)` publishes to `ws:{channel}`; on startup each replica runs `start_pubsub(redis_client)` which `PSUBSCRIBE`s `ws:*` and delivers every message to local sockets via `_broadcast_local`. If Redis is unavailable, `broadcast` falls back to a local-only send. Channels in use: `order:{id}`, `inventory`, `user:{id}`, `chat:{conversation_id}`.

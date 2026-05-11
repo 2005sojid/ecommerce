@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, getToken } from "../api";
 
 export default function AdminDashboard() {
@@ -27,6 +28,11 @@ export default function AdminDashboard() {
   return (
     <>
       <h1>Admin dashboard</h1>
+
+      <div className="card flex" style={{ gap: 12 }}>
+        <Link className="btn secondary" to="/admin/coupons">Manage coupons</Link>
+        <Link className="btn secondary" to="/admin/returns">Manage returns</Link>
+      </div>
 
       <h3>Today's sales ({today})</h3>
       {daily && (

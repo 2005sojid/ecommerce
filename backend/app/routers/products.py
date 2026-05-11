@@ -62,6 +62,14 @@ async def get_product(product_id: uuid.UUID, db: DBSession) -> ProductDetail:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Product not found')
     inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
     available = inv.quantity - inv.reserved if inv else 0
+    seller_id = seller_slug = seller_store_name = None
+    if product.seller_id is not None:
+        from app.models.seller import Seller
+        s = await db.get(Seller, product.seller_id)
+        if s is not None and s.is_active:
+            seller_id = s.id
+            seller_slug = s.slug
+            seller_store_name = s.store_name
     rating_key = f'product:{product_id}:avg_rating'
     rating_payload = await cache_get(rating_key)
     if rating_payload is None:
@@ -72,6 +80,9 @@ async def get_product(product_id: uuid.UUID, db: DBSession) -> ProductDetail:
     detail.available_quantity = max(available, 0)
     detail.average_rating = rating_payload['avg']
     detail.reviews_count = rating_payload['count']
+    detail.seller_id = seller_id
+    detail.seller_slug = seller_slug
+    detail.seller_store_name = seller_store_name
     await cache_set(cache_key, detail.model_dump(mode='json'), ttl=300)
     return detail
 
@@ -110,7 +121,25 @@ async def delete_product(product_id: uuid.UUID, _: AdminUser, db: DBSession) -> 
 
 @router.get('/{product_id}/reviews', response_model=Page[ReviewOut])
 async def list_product_reviews(product_id: uuid.UUID, db: DBSession, page: Annotated[int, Query(ge=1)]=1, per_page: Annotated[int, Query(ge=1, le=100)]=20) -> Page[ReviewOut]:
-    where = Review.product_id == product_id
+    from app.models.order import Order, OrderItem, OrderStatus
+    where = and_(Review.product_id == product_id, Review.is_approved.is_(True))
     total = (await db.execute(select(func.count()).select_from(Review).where(where))).scalar_one()
     rows = (await db.execute(select(Review).where(where).order_by(Review.created_at.desc()).offset((page - 1) * per_page).limit(per_page))).scalars().all()
-    return Page[ReviewOut](items=[ReviewOut.model_validate(r) for r in rows], total=total, page=page, per_page=per_page)
+    user_ids = [r.user_id for r in rows]
+    verified: set[uuid.UUID] = set()
+    if user_ids:
+        vp_stmt = select(Order.user_id).join(OrderItem, OrderItem.order_id == Order.id).where(OrderItem.product_id == product_id, Order.status.in_([OrderStatus.delivered, OrderStatus.shipped]), Order.user_id.in_(user_ids))
+        verified = {row[0] for row in (await db.execute(vp_stmt)).all()}
+    items: list[ReviewOut] = []
+    for r in rows:
+        item = ReviewOut.model_validate(r)
+        item.verified_purchase = r.user_id in verified
+        items.append(item)
+    return Page[ReviewOut](items=items, total=total, page=page, per_page=per_page)
+
+@router.get('/{product_id}/variants')
+async def list_variants(product_id: uuid.UUID, db: DBSession):
+    from app.models.product_variant import ProductVariant
+    from sqlalchemy import select
+    rows = (await db.execute(select(ProductVariant).where(ProductVariant.product_id == product_id, ProductVariant.is_active == True).order_by(ProductVariant.created_at.asc()))).scalars().all()
+    return [{'id': str(v.id), 'sku': v.sku, 'variant_name': v.variant_name, 'attributes': v.attributes, 'price': float(v.price), 'stock_quantity': v.stock_quantity, 'reserved_quantity': v.reserved_quantity} for v in rows]
