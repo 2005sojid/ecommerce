@@ -6,7 +6,7 @@ from app.models.inventory import Inventory
 router = APIRouter(prefix='/api/inventory', tags=['Inventory'])
 
 @router.get('/{product_id}')
-async def get_inventory(product_id: uuid.UUID, db: DBSession) -> dict:
+async def get_inventory(product_id: uuid.UUID, _: AdminUser, db: DBSession) -> dict:
     inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Inventory not found')

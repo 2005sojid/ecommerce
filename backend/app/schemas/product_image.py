@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ProductImageOut(BaseModel):
@@ -13,9 +13,3 @@ class ProductImageOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class ProductImageCreate(BaseModel):
-    url: str = Field(min_length=1, max_length=500)
-    alt: str | None = None
-    position: int = 0

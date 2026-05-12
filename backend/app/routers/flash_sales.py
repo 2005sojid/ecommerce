@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from app.cache.redis_cache import redis_client
-from app.deps import AdminUser, CurrentUser, DBSession
+from app.deps import AdminUser, CustomerUser, DBSession
 from app.models.flash_sale import FlashSale
+from app.models.product import Product
 from app.schemas.flash_sale import FlashSaleClaimResponse, FlashSaleCreate, FlashSaleOut
 from app.schemas.order import CheckoutRequest
 from app.services.flash_sale_service import FlashSaleService
@@ -25,10 +26,20 @@ async def create_flash_sale(payload: FlashSaleCreate, _: AdminUser, db: DBSessio
 @router.get('/active', response_model=list[FlashSaleOut])
 async def active_flash_sales(db: DBSession) -> list[FlashSaleOut]:
     now = datetime.now(timezone.utc)
-    rows = (await db.execute(select(FlashSale).where(FlashSale.is_active.is_(True), FlashSale.start_at <= now, FlashSale.end_at >= now))).scalars().all()
-    return [FlashSaleOut.model_validate(s) for s in rows]
+    rows = (await db.execute(
+        select(FlashSale, Product.name, Product.image_url)
+        .join(Product, Product.id == FlashSale.product_id)
+        .where(FlashSale.is_active.is_(True), FlashSale.start_at <= now, FlashSale.end_at >= now)
+    )).all()
+    out: list[FlashSaleOut] = []
+    for sale, pname, pimg in rows:
+        item = FlashSaleOut.model_validate(sale)
+        item.product_name = pname
+        item.product_image_url = pimg
+        out.append(item)
+    return out
 
 @router.post('/{sale_id}/claim', response_model=FlashSaleClaimResponse)
-async def claim(sale_id: uuid.UUID, payload: CheckoutRequest, user: CurrentUser, db: DBSession) -> FlashSaleClaimResponse:
+async def claim(sale_id: uuid.UUID, payload: CheckoutRequest, user: CustomerUser, db: DBSession) -> FlashSaleClaimResponse:
     (order, remaining) = await _service.claim(sale_id, user.id, payload.shipping_address, db)
     return FlashSaleClaimResponse(sale_id=sale_id, order_id=order.id, remaining_stock=remaining)

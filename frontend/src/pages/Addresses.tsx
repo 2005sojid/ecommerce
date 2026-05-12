@@ -134,14 +134,17 @@ export default function Addresses() {
       {loading ? (
         <p className="muted">Loading...</p>
       ) : items.length === 0 ? (
-        <p className="muted">You have no saved addresses yet.</p>
+        <div className="card" style={{ textAlign: "center", padding: 48 }}>
+          <h3 style={{ marginBottom: 4 }}>No saved addresses</h3>
+          <p className="muted">Add an address to speed up checkout.</p>
+        </div>
       ) : (
-        <div className="grid" style={{ gap: 12 }}>
+        <div className="stack">
           {items.map((a) => (
             <div key={a.id} className="card">
               <div className="flex" style={{ justifyContent: "space-between", alignItems: "center" }}>
                 <strong>{a.label || a.recipient_name}</strong>
-                {a.is_default && <span className="muted" style={{ border: "1px solid #ccc", padding: "2px 8px", borderRadius: 4 }}>Default</span>}
+                {a.is_default && <span className="badge">Default</span>}
               </div>
               <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", margin: "8px 0" }}>{formatAddress(a)}</pre>
               <div className="flex" style={{ gap: 8 }}>

@@ -5,7 +5,6 @@ import { api, getToken } from "../api";
 export default function OrderDetail() {
   const { id } = useParams();
   const [order, setOrder] = useState<any>(null);
-  const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -18,7 +17,6 @@ export default function OrderDetail() {
     wsRef.current = ws;
     ws.onmessage = (m) => {
       const data = JSON.parse(m.data);
-      setLiveEvents((prev) => [...prev, data]);
       if (data.event === "status_changed") {
         setOrder((o: any) => (o ? { ...o, status: data.new_status } : o));
       }
@@ -53,7 +51,7 @@ export default function OrderDetail() {
           {order.items?.map((it: any, idx: number) => (
             <tr key={`${it.product_id}:${it.variant_id || ""}:${idx}`}>
               <td>
-                <code>{it.product_id.slice(0, 8)}…</code>
+                {it.product_name || <code>{it.product_id.slice(0, 8)}</code>}
                 {it.variant_name ? ` — ${it.variant_name}` : ""}
               </td>
               <td>{it.quantity}</td>
@@ -77,15 +75,6 @@ export default function OrderDetail() {
         </tbody>
       </table>
 
-      <h3>🟢 Live updates (WebSocket)</h3>
-      <div className="card">
-        {liveEvents.length === 0 && <p className="muted">Waiting for updates…</p>}
-        {liveEvents.map((e, i) => (
-          <div key={i}>
-            <code>{e.timestamp?.slice(11, 19)}</code> — {e.event}: {e.from_status || "—"} → <strong>{e.new_status || e.current_status}</strong>
-          </div>
-        ))}
-      </div>
     </>
   );
 }

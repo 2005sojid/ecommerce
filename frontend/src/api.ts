@@ -124,7 +124,18 @@ export const reviewsApi = {
 export type ProductImage = { id: string; product_id: string; url: string; alt: string | null; position: number; created_at: string };
 export const imagesApi = {
   list: (product_id: string) => api.get<ProductImage[]>(`/products/${product_id}/images`).then(r => r.data),
-  add: (product_id: string, data: { url: string; alt?: string | null; position?: number }) => api.post<ProductImage>(`/products/${product_id}/images`, data).then(r => r.data),
+  upload: (product_id: string, file: File, opts?: { alt?: string; position?: number; onProgress?: (pct: number) => void }) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (opts?.alt) form.append('alt', opts.alt);
+    if (opts?.position !== undefined) form.append('position', String(opts.position));
+    return api.post<ProductImage>(`/products/${product_id}/images`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => {
+        if (opts?.onProgress && e.total) opts.onProgress(Math.round((e.loaded / e.total) * 100));
+      },
+    }).then(r => r.data);
+  },
   remove: (product_id: string, image_id: string) => api.delete(`/products/${product_id}/images/${image_id}`),
 };
 export type Category = { id: string; name: string; slug: string; parent_id: string | null };

@@ -70,17 +70,16 @@ export default function Chat() {
                   onClick={() => setActiveId(c.id)}
                   style={{
                     padding: 12,
-                    borderBottom: "1px solid #eee",
+                    borderBottom: "1px solid var(--border)",
                     cursor: "pointer",
-                    background: c.id === activeId ? "#f0f4ff" : "transparent",
+                    borderRadius: 8,
+                    background: c.id === activeId ? "var(--bg-elev-2)" : "transparent",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <strong>{c.seller_store_name || c.buyer_name || "Conversation"}</strong>
                     {c.unread_count > 0 && (
-                      <span style={{ background: "#e53935", color: "white", borderRadius: 12, padding: "2px 8px", fontSize: 12 }}>
-                        {c.unread_count}
-                      </span>
+                      <em className="count-badge" style={{ position: "static", border: 0 }}>{c.unread_count}</em>
                     )}
                   </div>
                   <div className="muted" style={{ fontSize: 13, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -104,11 +103,12 @@ export default function Chat() {
                       key={m.id}
                       style={{
                         alignSelf: mine ? "flex-end" : "flex-start",
-                        background: mine ? "#1976d2" : "#f0f0f0",
-                        color: mine ? "white" : "black",
-                        padding: "8px 12px",
-                        borderRadius: 12,
+                        background: mine ? "var(--primary)" : "var(--bg-elev-2)",
+                        color: mine ? "#fff" : "var(--fg)",
+                        padding: "10px 14px",
+                        borderRadius: 14,
                         maxWidth: "75%",
+                        border: mine ? "0" : "1px solid var(--border)",
                       }}
                     >
                       <div>{m.body}</div>
@@ -119,8 +119,9 @@ export default function Chat() {
                   );
                 })}
               </div>
-              <form onSubmit={send} style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <form onSubmit={send} className="flex" style={{ marginTop: 12 }}>
                 <textarea
+                  className="input"
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Type a message…"

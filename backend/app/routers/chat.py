@@ -1,6 +1,6 @@
 import uuid
 from fastapi import APIRouter, Query, status
-from app.deps import CurrentUser, DBSession
+from app.deps import CurrentUser, CustomerUser, DBSession
 from app.schemas.chat import ConversationOut, MessageOut, SendMessage, StartConversation
 from app.services import chat_service
 
@@ -8,7 +8,7 @@ router = APIRouter(prefix='/api/chat', tags=['Chat'])
 
 
 @router.post('/conversations', status_code=status.HTTP_201_CREATED, response_model=ConversationOut)
-async def start_conversation(payload: StartConversation, user: CurrentUser, db: DBSession) -> ConversationOut:
+async def start_conversation(payload: StartConversation, user: CustomerUser, db: DBSession) -> ConversationOut:
     conv = await chat_service.get_or_create_conversation(db, user.id, payload.seller_id)
     convs = await chat_service.list_conversations_for_user(db, user.id)
     for c in convs:

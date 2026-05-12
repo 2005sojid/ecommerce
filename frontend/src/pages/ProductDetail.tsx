@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, chatApi, imagesApi, reviewsApi, wishlistApi, type ProductImage } from "../api";
+import { useAuth } from "../useAuth";
+import Carousel, { type CarouselImage } from "../components/Carousel";
 
 type Variant = {
   id: string;
@@ -23,9 +25,11 @@ export default function ProductDetail() {
   const [inWishlist, setInWishlist] = useState(false);
   const [contacting, setContacting] = useState(false);
   const [images, setImages] = useState<ProductImage[]>([]);
-  const [mainImageUrl, setMainImageUrl] = useState<string | null>(null);
+  const [, setMainImageUrl] = useState<string | null>(null);
   const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
   const hasToken = !!localStorage.getItem("access_token");
+  const { user } = useAuth();
+  const canShop = !user || user.role === "customer";
   const navigate = useNavigate();
 
   const messageSeller = async () => {
@@ -111,36 +115,30 @@ export default function ProductDetail() {
   return (
     <>
       <h1>{p.name}</h1>
-      {(images.length > 0 || mainImageUrl) && (
-        <div className="card">
-          {mainImageUrl && (
-            <img src={mainImageUrl} alt={p.name} style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: 6 }} />
-          )}
-          {images.length > 1 && (
-            <div className="flex" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              {images.map((img) => (
-                <img
-                  key={img.id}
-                  src={img.url}
-                  alt={img.alt || ""}
-                  onClick={() => setMainImageUrl(img.url)}
-                  style={{ width: 64, height: 64, objectFit: "cover", cursor: "pointer", borderRadius: 4, border: mainImageUrl === img.url ? "2px solid #1976d2" : "1px solid #ddd" }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {(() => {
+        const carouselImages: CarouselImage[] = [];
+        if (p?.image_url) carouselImages.push({ url: p.image_url, alt: p.name });
+        for (const img of images) {
+          if (!carouselImages.some((c) => c.url === img.url)) {
+            carouselImages.push({ url: img.url, alt: img.alt });
+          }
+        }
+        return carouselImages.length > 0 ? <Carousel images={carouselImages} fallbackAlt={p?.name} /> : null;
+      })()}
       <div className="card">
         <div className="price" style={{ fontSize: 24 }}>${p.price}</div>
         <p>{p.description}</p>
         {p.seller_store_name && p.seller_slug && (
           <div className="muted" style={{ marginBottom: 6 }}>
             Sold by <Link to={`/store/${p.seller_slug}`}>{p.seller_store_name}</Link>
-            {" · "}
-            <button className="btn secondary" onClick={messageSeller} disabled={contacting} style={{ padding: "2px 8px", fontSize: 13 }}>
-              {contacting ? "Opening…" : "Message seller"}
-            </button>
+            {(!user || user.role === "customer") && (
+              <>
+                {" · "}
+                <button className="btn secondary" onClick={messageSeller} disabled={contacting} style={{ padding: "2px 8px", fontSize: 13 }}>
+                  {contacting ? "Opening…" : "Message seller"}
+                </button>
+              </>
+            )}
           </div>
         )}
         <div className="muted">Available: {p.available_quantity}</div>
@@ -166,16 +164,22 @@ export default function ProductDetail() {
             )}
           </div>
         )}
-        <div className="flex" style={{ marginTop: 12 }}>
-          <input className="input" type="number" min={1} value={qty}
-                 onChange={(e) => setQty(parseInt(e.target.value || "1"))} style={{ maxWidth: 80 }} />
-          <button className="btn" onClick={addToCart}>Add to cart</button>
-          {hasToken && (
-            <button className="btn secondary" onClick={toggleWishlist}>
-              {inWishlist ? "♥ Saved" : "♡ Save"}
-            </button>
-          )}
-        </div>
+        {canShop ? (
+          <div className="flex" style={{ marginTop: 12 }}>
+            <input className="input" type="number" min={1} value={qty}
+                   onChange={(e) => setQty(parseInt(e.target.value || "1"))} style={{ maxWidth: 80 }} />
+            <button className="btn" onClick={addToCart}>Add to cart</button>
+            {hasToken && user?.role === "customer" && (
+              <button className="btn secondary" onClick={toggleWishlist}>
+                {inWishlist ? "♥ Saved" : "♡ Save"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="muted" style={{ marginTop: 12 }}>
+            {user?.role === "admin" ? "Admins cannot place orders." : "Sellers cannot place orders from this account."}
+          </p>
+        )}
         {msg && <p className="muted">{msg}</p>}
       </div>
       <h2>Reviews</h2>
@@ -184,12 +188,12 @@ export default function ProductDetail() {
         <div key={r.id} className="card">
           <div className="flex" style={{ gap: 8, alignItems: "center" }}>
             <strong>★ {r.rating}</strong>
-            {r.verified_purchase && <span style={{ background: "#e0f5e9", color: "#1b5e20", borderRadius: 4, padding: "1px 6px", fontSize: 12 }}>✓ Verified purchase</span>}
+            {r.verified_purchase && <span className="badge shipped">✓ Verified purchase</span>}
             <span className="muted">{new Date(r.created_at).toLocaleDateString()}</span>
           </div>
           <p>{r.comment}</p>
           {r.seller_response && (
-            <div style={{ background: "#f5f5f5", borderLeft: "3px solid #1976d2", padding: 8, marginTop: 6 }}>
+            <div style={{ background: "var(--bg-elev-2)", borderLeft: "3px solid var(--primary)", padding: 10, marginTop: 8, borderRadius: 6 }}>
               <strong style={{ fontSize: 13 }}>Seller response:</strong>
               <div style={{ fontSize: 14 }}>{r.seller_response}</div>
             </div>

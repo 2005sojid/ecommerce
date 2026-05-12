@@ -14,6 +14,8 @@ class FlashSaleCreate(BaseModel):
 class FlashSaleOut(BaseModel):
     id: uuid.UUID
     product_id: uuid.UUID
+    product_name: str | None = None
+    product_image_url: str | None = None
     sale_price: Decimal
     original_price: Decimal
     start_at: datetime

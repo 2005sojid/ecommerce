@@ -71,7 +71,7 @@ export default function Returns() {
       ) : items.length === 0 ? (
         <p className="muted">No return requests yet.</p>
       ) : (
-        <table className="table">
+        <table>
           <thead>
             <tr>
               <th>Order</th>
@@ -84,11 +84,11 @@ export default function Returns() {
           <tbody>
             {items.map((r) => (
               <tr key={r.id}>
-                <td>{r.order_id}</td>
-                <td>{r.status}</td>
+                <td><code>{r.order_id}</code></td>
+                <td><span className={`badge ${r.status}`}>{r.status}</span></td>
                 <td>{r.reason}</td>
-                <td>{r.refund_amount != null ? `$${r.refund_amount}` : "—"}</td>
-                <td>{new Date(r.created_at).toLocaleDateString()}</td>
+                <td className="price">{r.refund_amount != null ? `$${r.refund_amount}` : "—"}</td>
+                <td className="muted">{new Date(r.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
           </tbody>

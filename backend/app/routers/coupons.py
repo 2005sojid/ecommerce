@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Query, status
 from fastapi.responses import Response
-from app.deps import AdminUser, CurrentUser, DBSession
+from app.deps import AdminUser, CustomerUser, DBSession
 from app.schemas.coupon import CouponCreate, CouponOut, CouponUpdate, CouponValidate, CouponValidationResult
 from app.services import coupon_service
 
@@ -9,7 +9,7 @@ router = APIRouter(prefix='/api/coupons', tags=['Coupons'])
 
 
 @router.post('/validate')
-async def validate_coupon(payload: CouponValidate, user: CurrentUser, db: DBSession) -> CouponValidationResult:
+async def validate_coupon(payload: CouponValidate, user: CustomerUser, db: DBSession) -> CouponValidationResult:
     return await coupon_service.validate(db, user.id, payload.code, payload.order_total)
 
 

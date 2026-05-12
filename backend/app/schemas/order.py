@@ -10,6 +10,8 @@ class CheckoutRequest(BaseModel):
 
 class OrderItemOut(BaseModel):
     product_id: uuid.UUID
+    product_name: str | None = None
+    product_image_url: str | None = None
     quantity: int
     unit_price: Decimal
     variant_id: uuid.UUID | None = None

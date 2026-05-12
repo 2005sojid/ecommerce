@@ -141,7 +141,7 @@ export default function Checkout() {
             </p>
           </>
         )}
-        <div style={{ marginTop: 16, borderTop: "1px solid #eee", paddingTop: 12 }}>
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
           <label>Coupon code</label>
           <div className="flex" style={{ gap: 8 }}>
             <input

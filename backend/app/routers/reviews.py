@@ -5,18 +5,17 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from app.cache.redis_cache import cache_delete
-from app.deps import AdminUser, CurrentUser, DBSession
+from app.deps import AdminUser, CurrentUser, CustomerUser, DBSession, SellerRoleUser
 from app.models.product import Product
 from app.models.review import Review
 from app.models.seller import Seller
-from app.models.user import UserRole
 from app.schemas.common import Page
 from app.schemas.review import ReviewCreate, ReviewModerate, ReviewOut, ReviewRespond, ReviewVoteIn
 from app.services import review_vote_service
 router = APIRouter(prefix='/api/reviews', tags=['Reviews'])
 
 @router.post('', response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
-async def create_review(payload: ReviewCreate, user: CurrentUser, db: DBSession) -> ReviewOut:
+async def create_review(payload: ReviewCreate, user: CustomerUser, db: DBSession) -> ReviewOut:
     product = await db.get(Product, payload.product_id)
     if product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Product not found')
@@ -45,9 +44,7 @@ async def unvote_review(review_id: uuid.UUID, user: CurrentUser, db: DBSession) 
 
 
 @router.post('/{review_id}/respond', response_model=ReviewOut)
-async def respond_review(review_id: uuid.UUID, payload: ReviewRespond, user: CurrentUser, db: DBSession) -> ReviewOut:
-    if user.role != UserRole.seller:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Seller privileges required')
+async def respond_review(review_id: uuid.UUID, payload: ReviewRespond, user: SellerRoleUser, db: DBSession) -> ReviewOut:
     seller = (await db.execute(select(Seller).where(Seller.user_id == user.id))).scalar_one_or_none()
     if seller is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, 'Seller profile not found')

@@ -32,7 +32,7 @@ export default function SellerDashboard() {
         </div>
       </div>
 
-      <div className="grid" style={{ marginTop: 16, gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div className="grid" style={{ marginTop: 16 }}>
         <div className="card">
           <div className="muted">Revenue</div>
           <div className="price">${analytics?.revenue_total?.toFixed(2) ?? "0.00"}</div>

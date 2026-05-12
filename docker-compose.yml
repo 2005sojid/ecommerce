@@ -35,6 +35,45 @@ services:
       sh -c "alembic upgrade head && python -m seeds.seed"
     restart: "no"
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-product-images}
+    entrypoint: >
+      sh -c "
+        set -e;
+        until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null 2>&1; do
+          echo 'waiting for minio...'; sleep 2;
+        done;
+        mc mb --ignore-existing local/$$MINIO_BUCKET;
+        mc anonymous set download local/$$MINIO_BUCKET;
+        echo 'minio bucket ready';
+      "
+    restart: "no"
+
   backend-1: &backend
     image: ecommerce-backend:latest
     pull_policy: never
@@ -44,6 +83,8 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -51,6 +92,8 @@ services:
       rabbitmq:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -194,3 +237,4 @@ volumes:
   loki_data:
   tempo_data:
   grafana_data:
+  minio_data:

@@ -33,6 +33,10 @@ class ProductOut(BaseModel):
     image_url: str | None
     is_active: bool
     created_at: datetime
+    category_name: str | None = None
+    seller_slug: str | None = None
+    seller_store_name: str | None = None
+    seller_is_verified: bool | None = None
 
     class Config:
         from_attributes = True

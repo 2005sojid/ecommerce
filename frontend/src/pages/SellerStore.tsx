@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { chatApi, sellerApi, type Seller } from "../api";
+import ProductCard from "../components/ProductCard";
+import { useAuth } from "../useAuth";
 
 export default function SellerStore() {
   const { slug } = useParams<{ slug: string }>();
@@ -13,6 +15,8 @@ export default function SellerStore() {
   const [contacting, setContacting] = useState(false);
   const navigate = useNavigate();
   const hasToken = !!localStorage.getItem("access_token");
+  const { user } = useAuth();
+  const canContact = !user || user.role === "customer";
   const per_page = 12;
 
   const contactSeller = async () => {
@@ -58,11 +62,13 @@ export default function SellerStore() {
           {seller.is_verified && <span className="muted">Verified</span>}
           {seller.description && <p className="muted" style={{ marginTop: 4 }}>{seller.description}</p>}
         </div>
-        <span style={{ marginLeft: "auto" }}>
-          <button className="btn" onClick={contactSeller} disabled={contacting}>
-            {contacting ? "Opening…" : "Contact seller"}
-          </button>
-        </span>
+        {canContact && (
+          <span style={{ marginLeft: "auto" }}>
+            <button className="btn" onClick={contactSeller} disabled={contacting}>
+              {contacting ? "Opening…" : "Contact seller"}
+            </button>
+          </span>
+        )}
       </div>
 
       <h2 style={{ marginTop: 16 }}>Products</h2>
@@ -72,12 +78,7 @@ export default function SellerStore() {
       ) : (
         <div className="grid">
           {products.map((p) => (
-            <Link key={p.id} to={`/products/${p.id}`} className="card">
-              {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 4 }} />}
-              <strong>{p.name}</strong>
-              <div className="muted">{p.description?.slice(0, 60)}</div>
-              <div className="price">${p.price}</div>
-            </Link>
+            <ProductCard key={p.id} product={p} />
           ))}
         </div>
       )}

@@ -40,7 +40,14 @@ class FlashSaleService:
         db.add(order)
         db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=None, to_status=OrderStatus.pending.value, event_metadata={'source': 'flash_sale', 'sale_id': str(sale_id)}))
         sale.remaining_stock = remaining
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            # Restore the Redis counter — we already decremented it but the SQL claim failed.
+            await self.redis.incrby(key, 1)
+            flash_sale_claims.labels(status='error').inc()
+            raise
         await db.refresh(order)
         await publish_event('order.created', {'order_id': order.id, 'source': 'flash_sale', 'sale_id': str(sale_id)})
         await broadcast_inventory_change(sale.product_id, remaining, source='flash_sale')

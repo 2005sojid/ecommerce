@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, imagesApi, sellerApi, type ProductImage } from "../../api";
 
 type Category = { id: string; name: string };
@@ -15,7 +15,10 @@ export default function SellerProducts() {
   const [loading, setLoading] = useState(true);
   const [imagesExpanded, setImagesExpanded] = useState<Record<string, boolean>>({});
   const [imagesByProduct, setImagesByProduct] = useState<Record<string, ProductImage[]>>({});
-  const [imgForm, setImgForm] = useState<Record<string, { url: string; alt: string; position: string }>>({});
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+  const [uploadErr, setUploadErr] = useState<Record<string, string>>({});
+  const [primaryUploadPct, setPrimaryUploadPct] = useState(0);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const loadImages = async (productId: string) => {
     try {
@@ -30,22 +33,30 @@ export default function SellerProducts() {
       if (next[productId] && !imagesByProduct[productId]) loadImages(productId);
       return next;
     });
-    if (!imgForm[productId]) {
-      setImgForm((s) => ({ ...s, [productId]: { url: "", alt: "", position: "0" } }));
-    }
   };
 
-  const addImage = async (productId: string, e: React.FormEvent) => {
-    e.preventDefault();
-    const f = imgForm[productId];
-    if (!f || !f.url) return;
-    try {
-      await imagesApi.add(productId, { url: f.url, alt: f.alt || null, position: parseInt(f.position || "0", 10) });
-      setImgForm((s) => ({ ...s, [productId]: { url: "", alt: "", position: "0" } }));
-      await loadImages(productId);
-    } catch (e: any) {
-      setErr(e.response?.data?.detail || "Failed to add image");
+  const uploadFiles = async (productId: string, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploadErr((s) => ({ ...s, [productId]: "" }));
+    const list = Array.from(files);
+    for (const file of list) {
+      try {
+        setUploadProgress((s) => ({ ...s, [productId]: 0 }));
+        await imagesApi.upload(productId, file, {
+          alt: file.name,
+          onProgress: (pct) => setUploadProgress((s) => ({ ...s, [productId]: pct })),
+        });
+      } catch (e: any) {
+        setUploadErr((s) => ({ ...s, [productId]: e.response?.data?.detail || `Failed to upload ${file.name}` }));
+      }
     }
+    setUploadProgress((s) => ({ ...s, [productId]: 0 }));
+    await loadImages(productId);
+  };
+
+  const onDropFiles = (productId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    uploadFiles(productId, e.dataTransfer.files);
   };
 
   const removeImage = async (productId: string, imageId: string) => {
@@ -174,9 +185,50 @@ export default function SellerProducts() {
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
-            <label>Image URL
-              <input className="input" value={form.image_url}
-                onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+            <label>Primary image
+              {editingId ? (
+                <>
+                  {form.image_url && (
+                    <img
+                      src={form.image_url}
+                      alt=""
+                      onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.25"; }}
+                      style={{ marginTop: 8, width: 200, height: 150, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)" }}
+                    />
+                  )}
+                  <label className="dropzone" style={{ marginTop: 8, display: "block" }}>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !editingId) return;
+                        try {
+                          setPrimaryUploadPct(0);
+                          const img = await imagesApi.upload(editingId, file, {
+                            alt: file.name,
+                            onProgress: setPrimaryUploadPct,
+                          });
+                          await sellerApi.updateProduct(editingId, { image_url: img.url });
+                          setForm((s) => ({ ...s, image_url: img.url }));
+                          setPrimaryUploadPct(0);
+                        } catch (er: any) {
+                          setErr(er.response?.data?.detail || "Upload failed");
+                          setPrimaryUploadPct(0);
+                        }
+                      }}
+                    />
+                    {primaryUploadPct > 0 ? `Uploading… ${primaryUploadPct}%` : "Click to upload primary image"}
+                  </label>
+                  {primaryUploadPct > 0 && (
+                    <div className="upload-progress"><div className="upload-progress-bar" style={{ width: `${primaryUploadPct}%` }} /></div>
+                  )}
+                </>
+              ) : (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Save the product first, then upload images from the "Manage images" panel below.
+                </div>
+              )}
             </label>
             {!editingId && (
               <label>Initial quantity
@@ -197,62 +249,85 @@ export default function SellerProducts() {
       ) : items.length === 0 ? (
         <p className="muted">No products yet.</p>
       ) : (
-        <div className="grid">
+        <div className="stack">
           {items.map((p) => (
             <div key={p.id} className="card">
-              <strong>{p.name}{!p.is_active && <span className="muted"> (inactive)</span>}</strong>
-              <div className="muted">{p.description?.slice(0, 80)}</div>
-              <div className="price">${p.price}</div>
-              <div className="flex" style={{ gap: 8, marginTop: 8 }}>
-                <button className="btn secondary" onClick={() => startEdit(p)}>Edit</button>
-                <button className="btn secondary" onClick={() => onDelete(p.id)}>Delete</button>
-                <button className="btn secondary" onClick={() => toggleImages(p.id)}>
-                  {imagesExpanded[p.id] ? "Hide images" : "Manage images"}
-                </button>
+              <div className="seller-row">
+                {p.image_url ? (
+                  <img
+                    src={p.image_url}
+                    alt={p.name}
+                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }}
+                    className="seller-row-thumb"
+                  />
+                ) : (
+                  <div className="seller-row-thumb placeholder">📦</div>
+                )}
+                <div className="seller-row-body">
+                  <strong>{p.name}{!p.is_active && <span className="muted"> (inactive)</span>}</strong>
+                  <div className="muted">{p.description?.slice(0, 120)}</div>
+                  <div className="price">${p.price}</div>
+                </div>
+                <div className="seller-row-actions">
+                  <button className="btn secondary" onClick={() => startEdit(p)}>Edit</button>
+                  <button className="btn secondary" onClick={() => onDelete(p.id)}>Delete</button>
+                  <button className="btn secondary" onClick={() => toggleImages(p.id)}>
+                    {imagesExpanded[p.id] ? "Hide images" : "Manage images"}
+                  </button>
+                </div>
               </div>
               {imagesExpanded[p.id] && (
-                <div style={{ marginTop: 10, borderTop: "1px solid #eee", paddingTop: 10 }}>
+                <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
                   <div className="flex" style={{ gap: 8, flexWrap: "wrap" }}>
                     {(imagesByProduct[p.id] || []).map((img) => (
                       <div key={img.id} style={{ position: "relative" }}>
-                        <img src={img.url} alt={img.alt || ""} style={{ width: 80, height: 80, objectFit: "cover", border: "1px solid #ddd" }} />
-                        <button
-                          className="btn secondary"
-                          onClick={() => removeImage(p.id, img.id)}
-                          style={{ position: "absolute", top: 0, right: 0, padding: "0 6px" }}
-                          title="Remove">×</button>
+                        <img src={img.url} alt={img.alt || ""} style={{ width: 88, height: 88, objectFit: "cover", border: "1px solid var(--border)", borderRadius: 6 }} />
+                        <div className="flex" style={{ gap: 4, position: "absolute", top: 4, right: 4 }}>
+                          <button
+                            className="btn secondary"
+                            title="Set as primary"
+                            onClick={async () => {
+                              try {
+                                await sellerApi.updateProduct(p.id, { image_url: img.url });
+                                await load();
+                              } catch (er: any) { setErr(er.response?.data?.detail || "Failed"); }
+                            }}
+                            style={{ padding: "0 6px", fontSize: 11 }}
+                          >★</button>
+                          <button
+                            className="btn danger"
+                            onClick={() => removeImage(p.id, img.id)}
+                            style={{ padding: "0 6px" }}
+                            title="Remove">×</button>
+                        </div>
                       </div>
                     ))}
                     {(!imagesByProduct[p.id] || imagesByProduct[p.id].length === 0) && (
-                      <span className="muted">No images yet.</span>
+                      <span className="muted">No images yet — upload below.</span>
                     )}
                   </div>
-                  <form onSubmit={(e) => addImage(p.id, e)} className="flex" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <label
+                    className="dropzone"
+                    style={{ marginTop: 12, display: "block" }}
+                    onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).classList.add("active"); }}
+                    onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove("active")}
+                    onDrop={(e) => { (e.currentTarget as HTMLElement).classList.remove("active"); onDropFiles(p.id, e); }}
+                  >
                     <input
-                      className="input"
-                      placeholder="Image URL"
-                      value={imgForm[p.id]?.url || ""}
-                      onChange={(e) => setImgForm((s) => ({ ...s, [p.id]: { ...(s[p.id] || { url: "", alt: "", position: "0" }), url: e.target.value } }))}
-                      required
-                      style={{ minWidth: 220 }}
+                      ref={(el) => { fileInputRefs.current[p.id] = el; }}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      multiple
+                      onChange={(e) => { uploadFiles(p.id, e.target.files); e.target.value = ""; }}
                     />
-                    <input
-                      className="input"
-                      placeholder="Alt"
-                      value={imgForm[p.id]?.alt || ""}
-                      onChange={(e) => setImgForm((s) => ({ ...s, [p.id]: { ...(s[p.id] || { url: "", alt: "", position: "0" }), alt: e.target.value } }))}
-                      style={{ maxWidth: 160 }}
-                    />
-                    <input
-                      className="input"
-                      type="number"
-                      placeholder="Pos"
-                      value={imgForm[p.id]?.position || "0"}
-                      onChange={(e) => setImgForm((s) => ({ ...s, [p.id]: { ...(s[p.id] || { url: "", alt: "", position: "0" }), position: e.target.value } }))}
-                      style={{ maxWidth: 80 }}
-                    />
-                    <button className="btn" type="submit">Add</button>
-                  </form>
+                    {uploadProgress[p.id] && uploadProgress[p.id] > 0
+                      ? `Uploading… ${uploadProgress[p.id]}%`
+                      : "Drag images here, or click to select (JPEG/PNG/WebP/GIF, max 5 MB)"}
+                  </label>
+                  {uploadProgress[p.id] && uploadProgress[p.id] > 0 && (
+                    <div className="upload-progress"><div className="upload-progress-bar" style={{ width: `${uploadProgress[p.id]}%` }} /></div>
+                  )}
+                  {uploadErr[p.id] && <p className="error">{uploadErr[p.id]}</p>}
                 </div>
               )}
             </div>

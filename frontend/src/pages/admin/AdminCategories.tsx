@@ -146,7 +146,7 @@ export default function AdminCategories() {
       ) : (
         <div className="card">
           {items.map((c) => (
-            <div key={c.id} className="flex" style={{ justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #eee" }}>
+            <div key={c.id} className="flex" style={{ justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
               <div style={{ paddingLeft: c.depth * 20 }}>
                 <strong>{c.name}</strong> <span className="muted">/{c.slug}</span>
               </div>

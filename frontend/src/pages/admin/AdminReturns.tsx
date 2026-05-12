@@ -73,7 +73,7 @@ export default function AdminReturns() {
       ) : items.length === 0 ? (
         <p className="muted">No returns.</p>
       ) : (
-        <table className="table">
+        <table>
           <thead>
             <tr>
               <th>Order</th>

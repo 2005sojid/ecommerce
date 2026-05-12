@@ -58,7 +58,7 @@ export default function AdminReviewsModerate() {
       ) : items.length === 0 ? (
         <p className="muted">No reviews.</p>
       ) : (
-        <table className="table">
+        <table>
           <thead>
             <tr>
               <th>Rating</th>

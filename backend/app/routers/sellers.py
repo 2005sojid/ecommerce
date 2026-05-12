@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import select
-from app.deps import CurrentUser, DBSession
+from app.deps import CustomerUser, DBSession, SellerRoleUser
 from app.models.product import Product
 from app.models.seller import Seller
 from app.models.user import UserRole
@@ -13,9 +13,7 @@ from app.schemas.seller import SellerCreate, SellerOut, SellerProductCreate, Sel
 from app.services import seller_service
 
 
-async def get_current_seller(user: CurrentUser, db: DBSession) -> Seller:
-    if user.role != UserRole.seller:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Seller role required')
+async def get_current_seller(user: SellerRoleUser, db: DBSession) -> Seller:
     seller = (await db.execute(select(Seller).where(Seller.user_id == user.id))).scalar_one_or_none()
     if seller is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Seller profile not found')
@@ -28,7 +26,7 @@ router = APIRouter(prefix='/api/sellers', tags=['Sellers'])
 
 
 @router.post('/register', response_model=SellerOut, status_code=status.HTTP_201_CREATED)
-async def register(payload: SellerCreate, user: CurrentUser, db: DBSession) -> SellerOut:
+async def register(payload: SellerCreate, user: CustomerUser, db: DBSession) -> SellerOut:
     seller = await seller_service.register_seller(db, user, payload)
     return SellerOut.model_validate(seller)
 

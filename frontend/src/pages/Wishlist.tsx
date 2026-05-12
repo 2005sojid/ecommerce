@@ -27,7 +27,11 @@ export default function Wishlist() {
     <>
       <h1>My Wishlist</h1>
       {items.length === 0 ? (
-        <p className="muted">Your wishlist is empty.</p>
+        <div className="card" style={{ textAlign: "center", padding: 48 }}>
+          <h3 style={{ marginBottom: 4 }}>Your wishlist is empty</h3>
+          <p className="muted">Save products you love and find them here later.</p>
+          <Link to="/products" className="btn" style={{ marginTop: 12 }}>Browse products</Link>
+        </div>
       ) : (
         <div className="grid">
           {items.map((i) => (

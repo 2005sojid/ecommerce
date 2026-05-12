@@ -29,5 +29,18 @@ async def get_admin_user(user: Annotated[User, Depends(get_current_user)]) -> Us
     if user.role != UserRole.admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, 'Admin privileges required')
     return user
+
+async def get_customer_user(user: Annotated[User, Depends(get_current_user)]) -> User:
+    if user.role != UserRole.customer:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Only customers can perform this action')
+    return user
+
+async def get_seller_role_user(user: Annotated[User, Depends(get_current_user)]) -> User:
+    if user.role != UserRole.seller:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Seller privileges required')
+    return user
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(get_admin_user)]
+CustomerUser = Annotated[User, Depends(get_customer_user)]
+SellerRoleUser = Annotated[User, Depends(get_seller_role_user)]

@@ -6,9 +6,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select, func, and_
 from app.cache.redis_cache import cache_delete, cache_get, cache_set
 from app.deps import AdminUser, DBSession
+from app.models.category import Category
 from app.models.inventory import Inventory
 from app.models.product import Product
 from app.models.review import Review
+from app.models.seller import Seller
 from app.schemas.common import Page
 from app.schemas.product import ProductCreate, ProductDetail, ProductOut, ProductUpdate
 from app.schemas.review import ReviewOut
@@ -48,8 +50,22 @@ async def list_products(db: DBSession, page: Annotated[int, Query(ge=1)]=1, per_
     total = (await db.execute(select(func.count()).select_from(Product).where(where))).scalar_one()
     sort_col = {'price': Product.price, 'created_at': Product.created_at, 'name': Product.name}[sort_by]
     sort_col = sort_col.asc() if sort_order == 'asc' else sort_col.desc()
-    rows = (await db.execute(select(Product).where(where).order_by(sort_col).offset((page - 1) * per_page).limit(per_page))).scalars().all()
-    return Page[ProductOut](items=[ProductOut.model_validate(p) for p in rows], total=total, page=page, per_page=per_page)
+    stmt = (
+        select(Product, Category.name, Seller.slug, Seller.store_name, Seller.is_verified)
+        .join(Category, Category.id == Product.category_id, isouter=True)
+        .join(Seller, Seller.id == Product.seller_id, isouter=True)
+        .where(where).order_by(sort_col).offset((page - 1) * per_page).limit(per_page)
+    )
+    result_rows = (await db.execute(stmt)).all()
+    items: list[ProductOut] = []
+    for p, cat_name, s_slug, s_store, s_verified in result_rows:
+        item = ProductOut.model_validate(p)
+        item.category_name = cat_name
+        item.seller_slug = s_slug
+        item.seller_store_name = s_store
+        item.seller_is_verified = s_verified
+        items.append(item)
+    return Page[ProductOut](items=items, total=total, page=page, per_page=per_page)
 
 @router.get('/{product_id}', response_model=ProductDetail)
 async def get_product(product_id: uuid.UUID, db: DBSession) -> ProductDetail:
