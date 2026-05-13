@@ -13,6 +13,7 @@ export default function Checkout() {
   const [couponCode, setCouponCode] = useState("");
   const [couponMsg, setCouponMsg] = useState("");
   const [discount, setDiscount] = useState<number>(0);
+  const [submitting, setSubmitting] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function Checkout() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setErr("");
     let shipping_address = "";
     if (addr.trim()) {
@@ -61,6 +63,11 @@ export default function Checkout() {
     } else {
       shipping_address = addr;
     }
+    if (!shipping_address.trim()) {
+      setErr("Please provide a shipping address");
+      return;
+    }
+    setSubmitting(true);
     try {
       const body: any = { shipping_address };
       if (discount > 0 && couponCode.trim()) body.coupon_code = couponCode.trim();
@@ -68,6 +75,7 @@ export default function Checkout() {
       nav(`/orders/${data.id}`);
     } catch (e: any) {
       setErr(e.response?.data?.detail || "Checkout failed");
+      setSubmitting(false);
     }
   };
 
@@ -162,7 +170,9 @@ export default function Checkout() {
           )}
         </div>
         {err && <p className="error">{err}</p>}
-        <button className="btn" type="submit" style={{ marginTop: 12 }}>Place order</button>
+        <button className="btn" type="submit" disabled={submitting} style={{ marginTop: 12, opacity: submitting ? 0.6 : 1 }}>
+          {submitting ? "Placing order…" : "Place order"}
+        </button>
       </form>
     </>
   );

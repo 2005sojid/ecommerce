@@ -10,7 +10,13 @@ from app.models.order_event import OrderEvent
 from app.routers.ws import broadcast_order_status
 from app.services.notification_service import ORDER_QUEUE, event_bus, publish_event
 logger = logging.getLogger(__name__)
-NEXT_STAGE: dict[str, tuple[OrderStatus, str, float]] = {'order.created': (OrderStatus.confirmed, 'order.confirmed', 2.0), 'order.confirmed': (OrderStatus.processing, 'order.processing', 0.5), 'order.processing': (OrderStatus.packed, 'order.packed', 3.0), 'order.packed': (OrderStatus.shipped, 'order.shipped', 1.0)}
+NEXT_STAGE: dict[str, tuple[OrderStatus, str, float]] = {
+    'order.created': (OrderStatus.confirmed, 'order.confirmed', 2.0),
+    'order.confirmed': (OrderStatus.processing, 'order.processing', 0.5),
+    'order.processing': (OrderStatus.packed, 'order.packed', 3.0),
+    'order.packed': (OrderStatus.shipped, 'order.shipped', 1.0),
+    'order.shipped': (OrderStatus.delivered, 'order.delivered', 5.0),
+}
 
 async def _advance(order_id: str, new_status: OrderStatus) -> None:
     async with async_session() as db:

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, chatApi, Conversation, Message } from "../api";
+import { api, chatApi, getToken, Conversation, Message } from "../api";
 
 export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -8,7 +8,9 @@ export default function Chat() {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const pollRef = useRef<number | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<number | null>(null);
+  const closedRef = useRef(false);
 
   const loadConversations = () => {
     chatApi.conversations().then(setConversations).catch(() => {});
@@ -28,15 +30,49 @@ export default function Chat() {
   useEffect(() => {
     if (!activeId) return;
     loadMessages(activeId);
-    pollRef.current = window.setInterval(() => {
-      loadMessages(activeId);
-      loadConversations();
-    }, 5000);
+    closedRef.current = false;
+
+    const connect = () => {
+      const token = getToken();
+      if (!token) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${window.location.host}/ws/chat/${activeId}?token=${token}`);
+      wsRef.current = ws;
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.event === "new_message" && data.conversation_id === activeId) {
+            const m: Message = {
+              id: data.id,
+              conversation_id: data.conversation_id,
+              sender_user_id: data.sender_user_id,
+              body: data.body,
+              is_read: !!data.is_read,
+              created_at: data.created_at,
+            };
+            setMessages((prev) => prev.some((x) => x.id === m.id) ? prev : [...prev, m]);
+            loadConversations();
+          }
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (closedRef.current) return;
+        reconnectRef.current = window.setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {};
+    };
+    connect();
+
+    const ping = setInterval(() => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send("ping");
+    }, 25000);
+
     return () => {
-      if (pollRef.current !== null) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
+      closedRef.current = true;
+      clearInterval(ping);
+      if (reconnectRef.current) window.clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
     };
   }, [activeId]);
 
@@ -47,10 +83,17 @@ export default function Chat() {
     try {
       await chatApi.send(activeId, body.trim());
       setBody("");
-      loadMessages(activeId);
       loadConversations();
+    } catch {
     } finally {
       setSending(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
     }
   };
 
@@ -124,7 +167,8 @@ export default function Chat() {
                   className="input"
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
-                  placeholder="Type a message…"
+                  onKeyDown={onKeyDown}
+                  placeholder="Type a message… (Ctrl+Enter to send)"
                   rows={2}
                   style={{ flex: 1 }}
                 />

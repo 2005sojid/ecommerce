@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { sellerApi } from "../../api";
+import { api, sellerApi } from "../../api";
+
+const NEXT_STATUS: Record<string, { value: string; label: string } | null> = {
+  pending: { value: "confirmed", label: "Confirm" },
+  confirmed: { value: "processing", label: "Process" },
+  processing: { value: "packed", label: "Pack" },
+  packed: { value: "shipped", label: "Ship" },
+  shipped: null,
+  delivered: null,
+  cancelled: null,
+};
 
 export default function SellerOrders() {
   const [items, setItems] = useState<any[]>([]);
@@ -8,15 +18,36 @@ export default function SellerOrders() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [tracking, setTracking] = useState<Record<string, string>>({});
   const per_page = 20;
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
     sellerApi.orders(page, per_page)
       .then((d) => { setItems(d.items); setTotal(d.total); })
       .catch((e) => setErr(e.response?.data?.detail || "Failed to load orders"))
       .finally(() => setLoading(false));
-  }, [page]);
+  };
+
+  useEffect(load, [page]);
+
+  const advance = async (orderId: string, currentStatus: string) => {
+    const next = NEXT_STATUS[currentStatus];
+    if (!next || busyId) return;
+    setBusyId(orderId);
+    setErr("");
+    try {
+      const body: any = { status: next.value };
+      if (next.value === "shipped" && tracking[orderId]?.trim()) body.tracking_number = tracking[orderId].trim();
+      await api.patch(`/orders/${orderId}/status`, body);
+      load();
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || "Failed to update order");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <>
@@ -36,19 +67,41 @@ export default function SellerOrders() {
                 <th align="left">Status</th>
                 <th align="right">Total</th>
                 <th align="left">Created</th>
-                <th></th>
+                <th align="left">Action</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((o) => (
-                <tr key={o.id}>
-                  <td>{o.id}</td>
-                  <td>{o.status}</td>
-                  <td align="right">${o.total_amount.toFixed(2)}</td>
-                  <td>{o.created_at ? new Date(o.created_at).toLocaleString() : ""}</td>
-                  <td><Link to={`/orders/${o.id}`} className="btn secondary">View</Link></td>
-                </tr>
-              ))}
+              {items.map((o) => {
+                const next = NEXT_STATUS[o.status];
+                return (
+                  <tr key={o.id}>
+                    <td><Link to={`/orders/${o.id}`}>{o.id}</Link></td>
+                    <td><span className={`badge ${o.status}`}>{o.status}</span></td>
+                    <td align="right">${Number(o.total_amount).toFixed(2)}</td>
+                    <td>{o.created_at ? new Date(o.created_at).toLocaleString() : ""}</td>
+                    <td>
+                      {next ? (
+                        <div className="flex" style={{ gap: 6 }}>
+                          {next.value === "shipped" && (
+                            <input
+                              className="input"
+                              placeholder="Tracking #"
+                              value={tracking[o.id] || ""}
+                              onChange={(e) => setTracking((s) => ({ ...s, [o.id]: e.target.value }))}
+                              style={{ maxWidth: 140 }}
+                            />
+                          )}
+                          <button className="btn" disabled={busyId === o.id} onClick={() => advance(o.id, o.status)}>
+                            {busyId === o.id ? "…" : next.label}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

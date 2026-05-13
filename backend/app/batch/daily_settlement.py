@@ -15,15 +15,16 @@ async def run() -> None:
     query = text(
         """
         SELECT s.id AS seller_id,
-               COALESCE(SUM(oi.unit_price * oi.quantity), 0) AS gross,
+               SUM(oi.unit_price * oi.quantity) AS gross,
                COUNT(DISTINCT o.id) AS order_count
         FROM sellers s
-        LEFT JOIN products p ON p.seller_id = s.id
-        LEFT JOIN order_items oi ON oi.product_id = p.id
-        LEFT JOIN orders o ON o.id = oi.order_id
-            AND DATE(o.created_at) = :d
-            AND o.status IN ('delivered', 'shipped')
+        JOIN products p ON p.seller_id = s.id
+        JOIN order_items oi ON oi.product_id = p.id
+        JOIN orders o ON o.id = oi.order_id
+        WHERE DATE(o.created_at) = :d
+          AND o.status IN ('delivered', 'shipped')
         GROUP BY s.id
+        HAVING SUM(oi.unit_price * oi.quantity) > 0
         """
     )
     upsert = text(

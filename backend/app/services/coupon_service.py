@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import HTTPException, status
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, update, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.coupon import Coupon, CouponUsage
@@ -37,18 +37,26 @@ async def validate(db: AsyncSession, user_id: uuid.UUID, code: str, order_total:
 
 
 async def apply(db: AsyncSession, user_id: uuid.UUID, coupon_id: uuid.UUID, order_id: str) -> CouponUsage:
-    coupon = await db.get(Coupon, coupon_id)
-    if coupon is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Coupon not found')
+    stmt = (
+        update(Coupon)
+        .where(
+            Coupon.id == coupon_id,
+            Coupon.is_active.is_(True),
+            or_(Coupon.max_uses.is_(None), Coupon.used_count < Coupon.max_uses),
+        )
+        .values(used_count=Coupon.used_count + 1)
+        .returning(Coupon.id)
+    )
+    res = await db.execute(stmt)
+    if res.scalar_one_or_none() is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon usage limit reached or coupon inactive')
     usage = CouponUsage(id=uuid.uuid4(), coupon_id=coupon_id, user_id=user_id, order_id=order_id)
     db.add(usage)
-    coupon.used_count = (coupon.used_count or 0) + 1
     try:
-        await db.commit()
+        await db.flush()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon already used for this order')
-    await db.refresh(usage)
     return usage
 
 

@@ -25,34 +25,54 @@ export default function Notifications() {
     }).catch(() => setLoading(false));
   };
 
+  const reconnectRef = useRef<number | null>(null);
+  const closedRef = useRef(false);
+
   useEffect(() => {
     load();
-    const token = getToken();
-    if (!token) return;
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws/user?token=${token}`);
-    wsRef.current = ws;
-    ws.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data);
-        if (data.event === "notification") {
-          const incoming: Notification = {
-            id: data.id,
-            type: data.type,
-            title: data.title,
-            body: data.body,
-            link: data.link,
-            is_read: !!data.is_read,
-            created_at: data.created_at,
-          };
-          setItems((prev) => prev.some((n) => n.id === incoming.id) ? prev : [incoming, ...prev]);
-        }
-      } catch {}
+    closedRef.current = false;
+
+    const connect = () => {
+      const token = getToken();
+      if (!token) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${window.location.host}/ws/user?token=${token}`);
+      wsRef.current = ws;
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.event === "notification") {
+            const incoming: Notification = {
+              id: data.id,
+              type: data.type,
+              title: data.title,
+              body: data.body,
+              link: data.link,
+              is_read: !!data.is_read,
+              created_at: data.created_at,
+            };
+            setItems((prev) => prev.some((n) => n.id === incoming.id) ? prev : [incoming, ...prev]);
+          }
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (closedRef.current) return;
+        reconnectRef.current = window.setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {};
     };
+    connect();
+
     const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 25000);
-    return () => { clearInterval(ping); ws.close(); };
+    return () => {
+      closedRef.current = true;
+      clearInterval(ping);
+      if (reconnectRef.current) window.clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
+    };
   }, []);
 
   const markOne = async (id: string) => {

@@ -2,9 +2,11 @@ import uuid
 from datetime import datetime, timezone
 import redis.asyncio as redis
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.metrics import flash_sale_claims
 from app.models.flash_sale import FlashSale
+from app.models.inventory import Inventory
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.order_event import OrderEvent
 from app.routers.ws import broadcast_inventory_change
@@ -35,6 +37,14 @@ class FlashSaleService:
             await self.redis.incrby(key, 1)
             flash_sale_claims.labels(status='sold_out').inc()
             raise HTTPException(status.HTTP_409_CONFLICT, 'Flash sale sold out')
+        inv = (await db.execute(
+            select(Inventory).where(Inventory.product_id == sale.product_id).with_for_update()
+        )).scalar_one_or_none()
+        if inv is None or inv.quantity - inv.reserved < 1:
+            await self.redis.incrby(key, 1)
+            flash_sale_claims.labels(status='sold_out').inc()
+            raise HTTPException(status.HTTP_409_CONFLICT, 'Out of stock')
+        inv.quantity -= 1
         order = Order(id=generate_order_id(), user_id=user_id, status=OrderStatus.pending, total_amount=sale.sale_price, shipping_address=shipping_address)
         order.items = [OrderItem(id=uuid.uuid4(), product_id=sale.product_id, quantity=1, unit_price=sale.sale_price)]
         db.add(order)

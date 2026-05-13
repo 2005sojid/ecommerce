@@ -1,18 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { api, imagesApi, sellerApi, type ProductImage } from "../../api";
 
-type Category = { id: string; name: string };
+type Category = { id: string; name: string; children?: Category[] };
+type FlatCategory = { id: string; label: string };
 
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 
+function flattenCategories(nodes: Category[], depth = 0, out: FlatCategory[] = []): FlatCategory[] {
+  for (const n of nodes) {
+    out.push({ id: n.id, label: `${"— ".repeat(depth)}${n.name}` });
+    if (n.children?.length) flattenCategories(n.children, depth + 1, out);
+  }
+  return out;
+}
+
 export default function SellerProducts() {
   const [items, setItems] = useState<any[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<FlatCategory[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [imagesExpanded, setImagesExpanded] = useState<Record<string, boolean>>({});
   const [imagesByProduct, setImagesByProduct] = useState<Record<string, ProductImage[]>>({});
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -91,7 +101,9 @@ export default function SellerProducts() {
 
   useEffect(() => {
     load();
-    api.get("/categories").then((r) => setCategories(r.data)).catch(() => {});
+    api.get<Category[]>("/categories")
+      .then((r) => setCategories(flattenCategories(r.data)))
+      .catch(() => {});
   }, []);
 
   const reset = () => {
@@ -115,7 +127,9 @@ export default function SellerProducts() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setErr("");
+    setSubmitting(true);
     try {
       if (editingId) {
         await sellerApi.updateProduct(editingId, {
@@ -141,6 +155,8 @@ export default function SellerProducts() {
       await load();
     } catch (e: any) {
       setErr(e.response?.data?.detail || "Failed to save product");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -182,7 +198,7 @@ export default function SellerProducts() {
               <select className="input" value={form.category_id} required
                 onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
                 <option value="">-- select --</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </label>
             <label>Primary image
@@ -200,6 +216,7 @@ export default function SellerProducts() {
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/gif"
+                      style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }}
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file || !editingId) return;
@@ -238,8 +255,10 @@ export default function SellerProducts() {
             )}
           </div>
           <div className="flex" style={{ gap: 8, marginTop: 12 }}>
-            <button className="btn" type="submit">{editingId ? "Save" : "Create"}</button>
-            <button className="btn secondary" type="button" onClick={reset}>Cancel</button>
+            <button className="btn" type="submit" disabled={submitting} style={{ opacity: submitting ? 0.6 : 1 }}>
+              {submitting ? "Saving…" : (editingId ? "Save" : "Create")}
+            </button>
+            <button className="btn secondary" type="button" onClick={reset} disabled={submitting}>Cancel</button>
           </div>
         </form>
       )}
@@ -318,6 +337,7 @@ export default function SellerProducts() {
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/gif"
                       multiple
+                      style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }}
                       onChange={(e) => { uploadFiles(p.id, e.target.files); e.target.value = ""; }}
                     />
                     {uploadProgress[p.id] && uploadProgress[p.id] > 0

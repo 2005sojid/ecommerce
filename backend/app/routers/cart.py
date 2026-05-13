@@ -21,19 +21,20 @@ async def add_item(payload: CartItemAdd, user: CustomerUser, db: DBSession) -> C
     product = await db.get(Product, payload.product_id)
     if product is None or not product.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Product not found')
+    existing_qty = await _service.get_quantity(user.id, payload.product_id, payload.variant_id)
+    target_qty = existing_qty + payload.quantity
     if payload.variant_id is not None:
         variant = (await db.execute(
             select(ProductVariant)
             .where(ProductVariant.id == payload.variant_id)
-            .with_for_update()
         )).scalar_one_or_none()
         if variant is None or variant.product_id != payload.product_id or not variant.is_active:
             raise HTTPException(status.HTTP_404_NOT_FOUND, 'Variant not found')
-        if variant.stock_quantity - variant.reserved_quantity < payload.quantity:
+        if variant.stock_quantity - variant.reserved_quantity < target_qty:
             raise HTTPException(status.HTTP_409_CONFLICT, 'Insufficient stock')
     else:
         inv = (await db.execute(select(Inventory).where(Inventory.product_id == payload.product_id))).scalar_one_or_none()
-        if inv is None or inv.quantity - inv.reserved < payload.quantity:
+        if inv is None or inv.quantity - inv.reserved < target_qty:
             raise HTTPException(status.HTTP_409_CONFLICT, 'Insufficient stock')
     await _service.add_item(user.id, payload.product_id, payload.quantity, payload.variant_id)
     return await _service.get_cart(user.id, db)
@@ -46,6 +47,19 @@ async def update_item(
     db: DBSession,
     variant_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> CartOut:
+    if payload.quantity > 0:
+        if variant_id is not None:
+            variant = (await db.execute(
+                select(ProductVariant).where(ProductVariant.id == variant_id)
+            )).scalar_one_or_none()
+            if variant is None or not variant.is_active:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, 'Variant not found')
+            if variant.stock_quantity - variant.reserved_quantity < payload.quantity:
+                raise HTTPException(status.HTTP_409_CONFLICT, 'Insufficient stock')
+        else:
+            inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
+            if inv is None or inv.quantity - inv.reserved < payload.quantity:
+                raise HTTPException(status.HTTP_409_CONFLICT, 'Insufficient stock')
     await _service.update_item(user.id, product_id, payload.quantity, variant_id)
     return await _service.get_cart(user.id, db)
 

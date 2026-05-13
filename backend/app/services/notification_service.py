@@ -39,8 +39,10 @@ class EventBus:
         await self.exchange.publish(message, routing_key=routing_key)
 event_bus = EventBus()
 
-async def publish_event(routing_key: str, payload: dict) -> None:
+async def publish_event(routing_key: str, payload: dict) -> bool:
     try:
         await event_bus.publish(routing_key, payload)
+        return True
     except Exception as exc:
-        logger.warning('publish_event(%s) failed: %s', routing_key, exc)
+        logger.error('publish_event(%s) failed: %s — pipeline will NOT advance this order', routing_key, exc, exc_info=True)
+        return False

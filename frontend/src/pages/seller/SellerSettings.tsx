@@ -6,6 +6,7 @@ export default function SellerSettings() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     sellerApi.me()
@@ -21,7 +22,9 @@ export default function SellerSettings() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setErr(""); setMsg("");
+    setBusy(true);
     try {
       await sellerApi.update({
         store_name: form.store_name,
@@ -32,6 +35,8 @@ export default function SellerSettings() {
       setMsg("Saved");
     } catch (e: any) {
       setErr(e.response?.data?.detail || "Failed to save");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -62,7 +67,9 @@ export default function SellerSettings() {
           </label>
         </div>
         <div className="flex" style={{ gap: 8, marginTop: 12 }}>
-          <button className="btn" type="submit">Save</button>
+          <button className="btn" type="submit" disabled={busy} style={{ opacity: busy ? 0.6 : 1 }}>
+            {busy ? "Saving…" : "Save"}
+          </button>
         </div>
       </form>
     </>

@@ -23,6 +23,7 @@ import SellerOrders from "./pages/seller/SellerOrders";
 import SellerSettings from "./pages/seller/SellerSettings";
 import SellerStore from "./pages/SellerStore";
 import AdminCoupons from "./pages/admin/AdminCoupons";
+import AdminOrders from "./pages/admin/AdminOrders";
 import Returns from "./pages/Returns";
 import AdminReturns from "./pages/admin/AdminReturns";
 import AdminReviewsModerate from "./pages/admin/AdminReviewsModerate";
@@ -62,22 +63,40 @@ export default function App() {
     const refresh = () => notificationsApi.unreadCount().then(setNotifCount).catch(() => {});
     refresh();
 
-    const token = getToken();
-    if (!token) return;
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws/user?token=${token}`);
-    ws.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data);
-        if (data.event === "notification") refresh();
-      } catch {}
+    let ws: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let closed = false;
+
+    const connect = () => {
+      const token = getToken();
+      if (!token) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${window.location.host}/ws/user?token=${token}`);
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          if (data.event === "notification" || data.event === "new_message") refresh();
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (closed) return;
+        reconnectTimer = window.setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {};
     };
-    ws.onerror = () => {};
+    connect();
+
     const ping = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 25000);
     const fallback = setInterval(refresh, 60000);
-    return () => { clearInterval(ping); clearInterval(fallback); ws.close(); };
+    return () => {
+      closed = true;
+      clearInterval(ping);
+      clearInterval(fallback);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      ws?.close();
+    };
   }, [user]);
 
   useEffect(() => {
@@ -194,7 +213,7 @@ export default function App() {
           <Route path="/cart" element={loading ? null : <RoleGuard user={user} allow={["customer"]}><Cart /></RoleGuard>} />
           <Route path="/checkout" element={loading ? null : <RoleGuard user={user} allow={["customer"]}><Checkout /></RoleGuard>} />
           <Route path="/orders" element={loading ? null : <RoleGuard user={user} allow={["customer"]}><Orders /></RoleGuard>} />
-          <Route path="/orders/:id" element={loading ? null : <RoleGuard user={user} allow={["customer", "admin"]}><OrderDetail /></RoleGuard>} />
+          <Route path="/orders/:id" element={loading ? null : <RoleGuard user={user} allow={["customer", "admin", "seller"]}><OrderDetail /></RoleGuard>} />
           <Route path="/flash-sales" element={<FlashSales />} />
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/register" element={<Register onRegister={setUser} />} />
@@ -209,6 +228,7 @@ export default function App() {
           <Route path="/seller/settings" element={loading ? null : <RoleGuard user={user} allow={["seller"]}><SellerSettings /></RoleGuard>} />
           <Route path="/store/:slug" element={<SellerStore />} />
           <Route path="/admin/coupons" element={loading ? null : <RoleGuard user={user} allow={["admin"]}><AdminCoupons /></RoleGuard>} />
+          <Route path="/admin/orders" element={loading ? null : <RoleGuard user={user} allow={["admin"]}><AdminOrders /></RoleGuard>} />
           <Route path="/returns" element={loading ? null : <RoleGuard user={user} allow={["customer"]}><Returns /></RoleGuard>} />
           <Route path="/admin/returns" element={loading ? null : <RoleGuard user={user} allow={["admin"]}><AdminReturns /></RoleGuard>} />
           <Route path="/admin/reviews" element={loading ? null : <RoleGuard user={user} allow={["admin"]}><AdminReviewsModerate /></RoleGuard>} />

@@ -14,6 +14,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");
+      window.dispatchEvent(new Event("auth:logout"));
     }
     return Promise.reject(err);
   }

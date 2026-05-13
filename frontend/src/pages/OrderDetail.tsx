@@ -1,37 +1,107 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { api, getToken } from "../api";
+import { useNavigate, useParams } from "react-router-dom";
+import { api, getToken, returnsApi } from "../api";
+import { useAuth } from "../useAuth";
 
 export default function OrderDetail() {
   const { id } = useParams();
   const [order, setOrder] = useState<any>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState("");
+  const [returnReason, setReturnReason] = useState("");
+  const [showReturn, setShowReturn] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<number | null>(null);
+  const closedRef = useRef(false);
+  const { user } = useAuth();
+  const nav = useNavigate();
+
+  const load = () => {
+    api.get(`/orders/${id}`).then((r) => setOrder(r.data)).catch((e) => setErr(e.response?.data?.detail || "Could not load order"));
+  };
 
   useEffect(() => {
-    api.get(`/orders/${id}`).then((r) => setOrder(r.data));
+    if (!id) return;
+    load();
+    closedRef.current = false;
 
-    const token = getToken();
-    if (!token) return;
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws/orders/${id}?token=${token}`);
-    wsRef.current = ws;
-    ws.onmessage = (m) => {
-      const data = JSON.parse(m.data);
-      if (data.event === "status_changed") {
-        setOrder((o: any) => (o ? { ...o, status: data.new_status } : o));
-      }
+    const connect = () => {
+      const token = getToken();
+      if (!token) return;
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${window.location.host}/ws/orders/${id}?token=${token}`);
+      wsRef.current = ws;
+      ws.onmessage = (m) => {
+        try {
+          const data = JSON.parse(m.data);
+          if (data.event === "status_changed") {
+            setOrder((o: any) => (o ? { ...o, status: data.new_status } : o));
+          }
+        } catch {}
+      };
+      ws.onclose = () => {
+        if (closedRef.current) return;
+        reconnectRef.current = window.setTimeout(connect, 3000);
+      };
+      ws.onerror = () => {};
     };
+    connect();
 
     const interval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 25000);
+
     return () => {
+      closedRef.current = true;
       clearInterval(interval);
-      ws.close();
+      if (reconnectRef.current) window.clearTimeout(reconnectRef.current);
+      wsRef.current?.close();
     };
   }, [id]);
 
+  const cancelOrder = async () => {
+    if (busy || !order) return;
+    if (!window.confirm("Cancel this order?")) return;
+    setBusy(true);
+    setActionMsg("");
+    try {
+      const { data } = await api.patch(`/orders/${order.id}/status`, { status: "cancelled", reason: "Customer cancelled" });
+      setOrder((o: any) => ({ ...o, status: data.status }));
+      setActionMsg("Order cancelled");
+    } catch (e: any) {
+      setActionMsg(e.response?.data?.detail || "Could not cancel");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitReturn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy || !order) return;
+    if (!returnReason.trim()) { setActionMsg("Please provide a reason"); return; }
+    setBusy(true);
+    setActionMsg("");
+    try {
+      await returnsApi.create(order.id, returnReason.trim());
+      setActionMsg("Return request submitted");
+      setShowReturn(false);
+      setReturnReason("");
+      nav("/returns");
+    } catch (e: any) {
+      setActionMsg(e.response?.data?.detail || "Could not submit return");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (err) return <p className="error">{err}</p>;
   if (!order) return <div>Loading…</div>;
+
+  const isCustomerOwner = user?.role === "customer" && order.user_id === user.id;
+  const canCancel = isCustomerOwner && order.status === "pending";
+  const canReturn = isCustomerOwner && (order.status === "delivered" || order.status === "shipped");
 
   return (
     <>
@@ -42,6 +112,27 @@ export default function OrderDetail() {
         <p>Total: <span className="price">${order.total_amount}</span></p>
         <p className="muted">Shipping: {order.shipping_address}</p>
         <p className="muted">Created: {new Date(order.created_at).toLocaleString()}</p>
+        <div className="flex" style={{ gap: 8, marginTop: 8 }}>
+          {canCancel && (
+            <button className="btn danger" onClick={cancelOrder} disabled={busy}>
+              {busy ? "Cancelling…" : "Cancel order"}
+            </button>
+          )}
+          {canReturn && !showReturn && (
+            <button className="btn secondary" onClick={() => setShowReturn(true)}>Request return</button>
+          )}
+        </div>
+        {showReturn && (
+          <form onSubmit={submitReturn} style={{ marginTop: 12 }}>
+            <label>Reason for return</label>
+            <textarea className="input" rows={3} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} required />
+            <div className="flex" style={{ gap: 8, marginTop: 8 }}>
+              <button className="btn" type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit return"}</button>
+              <button className="btn secondary" type="button" onClick={() => setShowReturn(false)} disabled={busy}>Cancel</button>
+            </div>
+          </form>
+        )}
+        {actionMsg && <p className="muted" style={{ marginTop: 8 }}>{actionMsg}</p>}
       </div>
 
       <h3>Items</h3>
@@ -74,7 +165,6 @@ export default function OrderDetail() {
           ))}
         </tbody>
       </table>
-
     </>
   );
 }

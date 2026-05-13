@@ -49,3 +49,31 @@ async def reindex_search(_: AdminUser, db: DBSession) -> dict:
 async def low_stock(_: AdminUser, db: DBSession, threshold: Annotated[int, Query(ge=0)]=10) -> list[dict]:
     rows = (await db.execute(select(Inventory, Product.name).join(Product, Product.id == Inventory.product_id).where(Inventory.quantity - Inventory.reserved < threshold).order_by(Inventory.quantity.asc()))).all()
     return [{'product_id': str(inv.product_id), 'name': name, 'quantity': inv.quantity, 'reserved': inv.reserved, 'available': inv.quantity - inv.reserved} for (inv, name) in rows]
+
+@router.get('/orders')
+async def admin_list_orders(
+    _: AdminUser,
+    db: DBSession,
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int, Query(ge=1, le=200)] = 25,
+    status: str | None = None,
+) -> dict:
+    where = []
+    if status:
+        try:
+            where.append(Order.status == OrderStatus(status))
+        except ValueError:
+            pass
+    total = (await db.execute(select(func.count()).select_from(Order).where(*where))).scalar_one()
+    stmt = select(Order).where(*where).order_by(Order.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
+    rows = (await db.execute(stmt)).scalars().all()
+    items = [{
+        'id': o.id,
+        'user_id': str(o.user_id),
+        'status': o.status.value,
+        'total_amount': str(o.total_amount),
+        'tracking_number': o.tracking_number,
+        'shipping_address': o.shipping_address,
+        'created_at': o.created_at.isoformat() if o.created_at else None,
+    } for o in rows]
+    return {'items': items, 'total': int(total), 'page': page, 'per_page': per_page}

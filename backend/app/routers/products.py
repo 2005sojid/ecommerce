@@ -72,7 +72,10 @@ async def get_product(product_id: uuid.UUID, db: DBSession) -> ProductDetail:
     cache_key = f'product:{product_id}'
     cached_payload = await cache_get(cache_key)
     if cached_payload is not None:
-        return ProductDetail.model_validate(cached_payload)
+        detail = ProductDetail.model_validate(cached_payload)
+        inv = (await db.execute(select(Inventory).where(Inventory.product_id == product_id))).scalar_one_or_none()
+        detail.available_quantity = max((inv.quantity - inv.reserved) if inv else 0, 0)
+        return detail
     product = await db.get(Product, product_id)
     if product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Product not found')
@@ -93,13 +96,14 @@ async def get_product(product_id: uuid.UUID, db: DBSession) -> ProductDetail:
         rating_payload = {'avg': float(rating_row[0]) if rating_row[0] is not None else None, 'count': int(rating_row[1] or 0)}
         await cache_set(rating_key, rating_payload, ttl=600)
     detail = ProductDetail.model_validate(product)
-    detail.available_quantity = max(available, 0)
+    detail.available_quantity = 0
     detail.average_rating = rating_payload['avg']
     detail.reviews_count = rating_payload['count']
     detail.seller_id = seller_id
     detail.seller_slug = seller_slug
     detail.seller_store_name = seller_store_name
     await cache_set(cache_key, detail.model_dump(mode='json'), ttl=300)
+    detail.available_quantity = max(available, 0)
     return detail
 
 @router.post('', response_model=ProductOut, status_code=status.HTTP_201_CREATED)

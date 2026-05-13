@@ -21,6 +21,16 @@ from app.services.notification_service import publish_event
 
 LOW_STOCK_THRESHOLD = 10
 
+ALLOWED_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
+    OrderStatus.pending: {OrderStatus.confirmed, OrderStatus.cancelled},
+    OrderStatus.confirmed: {OrderStatus.processing, OrderStatus.cancelled},
+    OrderStatus.processing: {OrderStatus.packed, OrderStatus.cancelled},
+    OrderStatus.packed: {OrderStatus.shipped, OrderStatus.cancelled},
+    OrderStatus.shipped: {OrderStatus.delivered},
+    OrderStatus.delivered: set(),
+    OrderStatus.cancelled: set(),
+}
+
 def generate_order_id() -> str:
     ts = datetime.now(timezone.utc).strftime('%y%m%d')
     rnd = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -110,12 +120,10 @@ class OrderService:
         if coupon_meta:
             event_meta.update(coupon_meta)
         db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=None, to_status=OrderStatus.pending.value, event_metadata=event_meta))
-        await db.commit()
+        await db.flush()
         if applied_coupon_id is not None:
-            try:
-                await coupon_service.apply(db, user_id, applied_coupon_id, order.id)
-            except Exception:
-                pass
+            await coupon_service.apply(db, user_id, applied_coupon_id, order.id)
+        await db.commit()
         await db.refresh(order)
         await self.cart_service.clear(user_id)
         await publish_event('order.created', {'order_id': order.id})
@@ -152,20 +160,25 @@ class OrderService:
         if order is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, 'Order not found')
         old_status = order.status
+        if new_status == old_status:
+            return order
+        allowed = ALLOWED_TRANSITIONS.get(old_status, set())
+        if new_status not in allowed:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f'Illegal transition: {old_status.value} -> {new_status.value}',
+            )
         order.status = new_status
         if tracking_number is not None:
             order.tracking_number = tracking_number
-        event_meta: dict | None = None
-        if reason or tracking_number is not None:
-            event_meta = {}
-            if reason:
-                event_meta['reason'] = reason
-            if tracking_number is not None:
-                event_meta['tracking_number'] = tracking_number
+        event_meta: dict | None = {'source': 'admin'}
+        if reason:
+            event_meta['reason'] = reason
+        if tracking_number is not None:
+            event_meta['tracking_number'] = tracking_number
         db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=old_status.value if old_status else None, to_status=new_status.value, event_metadata=event_meta))
         await db.commit()
         await db.refresh(order)
-        await publish_event(f'order.{new_status.value}', {'order_id': order.id, 'status': new_status.value})
         await broadcast_order_status(order.id, new_status.value, old_status.value if old_status else None)
         order_status_transitions.labels(from_status=old_status.value if old_status else 'none', to_status=new_status.value).inc()
         try:

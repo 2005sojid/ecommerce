@@ -84,16 +84,23 @@ class CartService:
             ))
         return CartOut(items=items, total=total)
 
-    async def add_item(self, user_id: uuid.UUID, product_id: uuid.UUID, quantity: int, variant_id: uuid.UUID | None = None) -> None:
+    async def get_quantity(self, user_id: uuid.UUID, product_id: uuid.UUID, variant_id: uuid.UUID | None = None) -> int:
+        raw = await self.redis.hget(_key(user_id), _field(product_id, variant_id))
+        return int(raw) if raw else 0
+
+    async def add_item(self, user_id: uuid.UUID, product_id: uuid.UUID, quantity: int, variant_id: uuid.UUID | None = None) -> int:
+        key = _key(user_id)
+        new_qty = await self.redis.hincrby(key, _field(product_id, variant_id), quantity)
+        await self.redis.expire(key, CART_TTL_SECONDS)
+        return int(new_qty)
+
+    async def update_item(self, user_id: uuid.UUID, product_id: uuid.UUID, quantity: int, variant_id: uuid.UUID | None = None) -> None:
+        if quantity <= 0:
+            await self.remove_item(user_id, product_id, variant_id)
+            return
         key = _key(user_id)
         await self.redis.hset(key, _field(product_id, variant_id), quantity)
         await self.redis.expire(key, CART_TTL_SECONDS)
-
-    async def update_item(self, user_id: uuid.UUID, product_id: uuid.UUID, quantity: int, variant_id: uuid.UUID | None = None) -> None:
-        if quantity == 0:
-            await self.remove_item(user_id, product_id, variant_id)
-            return
-        await self.add_item(user_id, product_id, quantity, variant_id)
 
     async def remove_item(self, user_id: uuid.UUID, product_id: uuid.UUID, variant_id: uuid.UUID | None = None) -> None:
         await self.redis.hdel(_key(user_id), _field(product_id, variant_id))

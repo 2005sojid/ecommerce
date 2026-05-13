@@ -379,7 +379,6 @@ async def seed(force: bool=False) -> None:
         for i, p in enumerate(products, start=1):
             qty = random.randint(10, 500)
             db.add(Inventory(id=uuid.uuid4(), product_id=p.id, quantity=qty, reserved=0, warehouse_location=random.choice(['WH-A', 'WH-B', 'WH-C'])))
-            db.add(ProductVariant(id=uuid.uuid4(), product_id=p.id, sku=f'SKU-{str(p.id).replace("-", "")}', variant_name='Default', attributes=None, price=p.price, stock_quantity=qty, reserved_quantity=0, is_active=True))
             kw = product_keywords[p.id]
             gallery_urls = _gallery_images(p.name, kw, lock_base=i * 10)
             for pos, url in enumerate(gallery_urls):

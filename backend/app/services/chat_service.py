@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.conversation import Conversation, Message
 from app.models.seller import Seller
 from app.models.user import User
-from app.routers.ws import broadcast_user_notification
+from app.routers.ws import broadcast_user_notification, manager as ws_manager
 from app.schemas.chat import ConversationOut
 
 
@@ -110,11 +110,15 @@ async def send_message(db: AsyncSession, conversation_id: uuid.UUID, sender_user
     await db.commit()
     await db.refresh(msg)
     other_user_id = seller.user_id if sender_user_id == conv.buyer_id else conv.buyer_id
-    await broadcast_user_notification(other_user_id, {
+    payload = {
         'event': 'new_message',
+        'id': str(msg.id),
         'conversation_id': str(conversation_id),
         'body': body,
         'sender_user_id': str(sender_user_id),
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-    })
+        'is_read': False,
+        'created_at': msg.created_at.isoformat() if msg.created_at else datetime.now(timezone.utc).isoformat(),
+    }
+    await ws_manager.broadcast(f'chat:{conversation_id}', payload)
+    await broadcast_user_notification(other_user_id, payload)
     return msg

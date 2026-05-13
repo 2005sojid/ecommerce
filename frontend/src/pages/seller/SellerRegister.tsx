@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { sellerApi } from "../../api";
+import { useAuth } from "../../useAuth";
 
 export default function SellerRegister() {
   const nav = useNavigate();
+  const { refresh } = useAuth();
   const [form, setForm] = useState({
     store_name: "",
     description: "",
@@ -15,6 +17,7 @@ export default function SellerRegister() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setErr("");
     setBusy(true);
     try {
@@ -24,11 +27,10 @@ export default function SellerRegister() {
         logo_url: form.logo_url || null,
         banner_url: form.banner_url || null,
       });
+      await refresh();
       nav("/seller/dashboard");
-      window.location.reload();
     } catch (e: any) {
       setErr(e.response?.data?.detail || "Failed to register seller");
-    } finally {
       setBusy(false);
     }
   };

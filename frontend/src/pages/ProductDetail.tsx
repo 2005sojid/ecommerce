@@ -24,6 +24,12 @@ export default function ProductDetail() {
   const [msg, setMsg] = useState("");
   const [inWishlist, setInWishlist] = useState(false);
   const [contacting, setContacting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewMsg, setReviewMsg] = useState("");
+  const [postingReview, setPostingReview] = useState(false);
+  const [loadErr, setLoadErr] = useState("");
   const [images, setImages] = useState<ProductImage[]>([]);
   const [, setMainImageUrl] = useState<string | null>(null);
   const [votedIds, setVotedIds] = useState<Set<string>>(new Set());
@@ -48,11 +54,12 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (!id) return;
+    setLoadErr("");
     api.get(`/products/${id}`).then((r) => {
       setP(r.data);
       if (r.data?.image_url) setMainImageUrl(r.data.image_url);
-    });
-    api.get(`/products/${id}/reviews`).then((r) => setReviews(r.data.items));
+    }).catch((e) => setLoadErr(e.response?.data?.detail || "Could not load product"));
+    api.get(`/products/${id}/reviews`).then((r) => setReviews(r.data.items)).catch(() => {});
     api.get<Variant[]>(`/products/${id}/variants`).then((r) => {
       setVariants(r.data);
       if (r.data.length > 0) setSelectedVariantId(r.data[0].id);
@@ -97,6 +104,10 @@ export default function ProductDetail() {
   };
 
   const addToCart = async () => {
+    if (adding) return;
+    if (!hasToken) { navigate("/login"); return; }
+    setAdding(true);
+    setMsg("");
     try {
       const body: any = { product_id: id, quantity: qty };
       if (selectedVariantId) body.variant_id = selectedVariantId;
@@ -104,9 +115,31 @@ export default function ProductDetail() {
       setMsg("Added to cart");
     } catch (e: any) {
       setMsg(e.response?.data?.detail || "Error");
+    } finally {
+      setAdding(false);
     }
   };
 
+  const postReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (postingReview || !id) return;
+    setReviewMsg("");
+    if (reviewRating < 1 || reviewRating > 5) { setReviewMsg("Rating must be 1-5"); return; }
+    setPostingReview(true);
+    try {
+      await api.post("/reviews", { product_id: id, rating: reviewRating, comment: reviewComment || null });
+      setReviewComment("");
+      setReviewMsg("Review submitted");
+      const r = await api.get(`/products/${id}/reviews`);
+      setReviews(r.data.items);
+    } catch (e: any) {
+      setReviewMsg(e.response?.data?.detail || "Could not submit review");
+    } finally {
+      setPostingReview(false);
+    }
+  };
+
+  if (loadErr) return <p className="error">{loadErr}</p>;
   if (!p) return <div>Loading…</div>;
 
   const showVariantPicker = variants.length > 1;
@@ -168,7 +201,10 @@ export default function ProductDetail() {
           <div className="flex" style={{ marginTop: 12 }}>
             <input className="input" type="number" min={1} value={qty}
                    onChange={(e) => setQty(parseInt(e.target.value || "1"))} style={{ maxWidth: 80 }} />
-            <button className="btn" onClick={addToCart}>Add to cart</button>
+            <button className="btn" onClick={addToCart} disabled={adding || p.available_quantity <= 0}
+                    style={{ opacity: (adding || p.available_quantity <= 0) ? 0.6 : 1 }}>
+              {p.available_quantity <= 0 ? "Out of stock" : adding ? "Adding…" : "Add to cart"}
+            </button>
             {hasToken && user?.role === "customer" && (
               <button className="btn secondary" onClick={toggleWishlist}>
                 {inWishlist ? "♥ Saved" : "♡ Save"}
@@ -183,6 +219,20 @@ export default function ProductDetail() {
         {msg && <p className="muted">{msg}</p>}
       </div>
       <h2>Reviews</h2>
+      {hasToken && user?.role === "customer" && (
+        <form className="card" onSubmit={postReview}>
+          <label>Your rating</label>
+          <select className="input" value={reviewRating} onChange={(e) => setReviewRating(parseInt(e.target.value))} style={{ maxWidth: 120 }}>
+            {[5,4,3,2,1].map((n) => <option key={n} value={n}>{"★".repeat(n)} ({n})</option>)}
+          </select>
+          <label style={{ marginTop: 8 }}>Comment (optional)</label>
+          <textarea className="input" rows={3} value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} />
+          {reviewMsg && <p className="muted">{reviewMsg}</p>}
+          <button className="btn" type="submit" disabled={postingReview} style={{ marginTop: 8, opacity: postingReview ? 0.6 : 1 }}>
+            {postingReview ? "Submitting…" : "Post review"}
+          </button>
+        </form>
+      )}
       {reviews.length === 0 && <p className="muted">No reviews yet.</p>}
       {reviews.map((r) => (
         <div key={r.id} className="card">

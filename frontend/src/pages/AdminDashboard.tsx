@@ -9,18 +9,21 @@ export default function AdminDashboard() {
   const [low, setLow] = useState<any[]>([]);
 
   useEffect(() => {
-    api.get(`/admin/analytics/daily?date=${today}`).then((r) => setDaily(r.data));
-    api.get("/admin/analytics/top-products?days=30&limit=5").then((r) => setTop(r.data));
-    api.get("/admin/inventory/low-stock?threshold=20").then((r) => setLow(r.data));
+    api.get(`/admin/analytics/daily?date=${today}`).then((r) => setDaily(r.data)).catch(() => setDaily(null));
+    api.get("/admin/analytics/top-products?days=30&limit=5").then((r) => setTop(r.data)).catch(() => setTop([]));
+    api.get("/admin/inventory/low-stock?threshold=20").then((r) => setLow(r.data)).catch(() => setLow([]));
   }, [today]);
 
   return (
     <>
       <h1>Admin dashboard</h1>
 
-      <div className="card flex" style={{ gap: 12 }}>
+      <div className="card flex" style={{ gap: 12, flexWrap: "wrap" }}>
+        <Link className="btn secondary" to="/admin/orders">Manage orders</Link>
         <Link className="btn secondary" to="/admin/coupons">Manage coupons</Link>
         <Link className="btn secondary" to="/admin/returns">Manage returns</Link>
+        <Link className="btn secondary" to="/admin/reviews">Moderate reviews</Link>
+        <Link className="btn secondary" to="/admin/categories">Categories</Link>
       </div>
 
       <h3>Today's sales ({today})</h3>

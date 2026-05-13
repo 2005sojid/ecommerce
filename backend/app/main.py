@@ -17,6 +17,23 @@ from app.workers import order_pipeline, search_sync
 configure_logging()
 logger = logging.getLogger(__name__)
 
+import asyncio as _asyncio
+from app.config import settings as _settings
+
+IS_LEADER = _settings.INSTANCE_ID in ('1', '0')
+
+async def _connect_event_bus_with_retry(max_attempts: int = 12, delay: float = 2.0) -> bool:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await event_bus.connect()
+            return True
+        except Exception as exc:
+            logger.warning('RabbitMQ connect attempt %d/%d failed: %s', attempt, max_attempts, exc)
+            await _asyncio.sleep(delay)
+    logger.error('RabbitMQ connect: gave up after %d attempts — order pipeline will NOT run', max_attempts)
+    return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -27,35 +44,47 @@ async def lifespan(app: FastAPI):
         await search_service.init_index()
     except Exception as exc:
         logger.warning('Meilisearch init failed: %s', exc)
+    if await _connect_event_bus_with_retry():
+        try:
+            await order_pipeline.run()
+            await search_sync.run()
+            logger.info('RabbitMQ workers registered')
+        except Exception as exc:
+            logger.error('Worker registration failed: %s', exc, exc_info=True)
     try:
-        await event_bus.connect()
-        await order_pipeline.run()
-        await search_sync.run()
-    except Exception as exc:
-        logger.warning('RabbitMQ/workers startup failed: %s', exc)
-    try:
-        daily_sales.start()
-    except Exception as exc:
-        logger.warning('Scheduler startup failed: %s', exc)
-    try:
-        from app.batch import abandoned_cart, daily_settlement
         from app.routers.ws import manager as ws_manager
         await ws_manager.start_pubsub(redis_client)
-        abandoned_cart.start()
-        daily_settlement.start()
     except Exception as exc:
-        logger.warning('startup of pubsub/batches failed: %s', exc)
+        logger.warning('ws pubsub start failed: %s', exc)
+    if IS_LEADER:
+        try:
+            from app.batch import abandoned_cart, daily_settlement
+            daily_sales.start()
+            abandoned_cart.start()
+            daily_settlement.start()
+            logger.info('Batch schedulers started (leader instance %s)', _settings.INSTANCE_ID)
+        except Exception as exc:
+            logger.warning('Scheduler startup failed: %s', exc)
+    else:
+        logger.info('Instance %s is not leader — skipping batch schedulers', _settings.INSTANCE_ID)
     yield
     try:
-        from app.batch import abandoned_cart as _ac, daily_settlement as _ds
         from app.routers.ws import manager as ws_manager
         await ws_manager.stop_pubsub()
-        _ac.shutdown()
-        _ds.shutdown()
     except Exception:
         pass
-    daily_sales.shutdown()
-    await event_bus.close()
+    if IS_LEADER:
+        try:
+            from app.batch import abandoned_cart as _ac, daily_settlement as _ds
+            _ac.shutdown()
+            _ds.shutdown()
+            daily_sales.shutdown()
+        except Exception:
+            pass
+    try:
+        await event_bus.close()
+    except Exception:
+        pass
     await redis_client.aclose()
     await search_service.close()
 app = FastAPI(title='E-Commerce Platform API', description='Real-time inventory e-commerce system with flash sales, order tracking, and analytics.', version='1.0.0', docs_url='/api/docs', redoc_url='/api/redoc', openapi_url='/api/openapi.json', lifespan=lifespan)

@@ -6,11 +6,14 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const nav = useNavigate();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setErr("");
+    setBusy(true);
     try {
       const { data } = await api.post("/auth/login", { email, password });
       saveTokens(data.access_token, data.refresh_token);
@@ -19,6 +22,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
       nav("/");
     } catch (e: any) {
       setErr(e.response?.data?.detail || "Login failed");
+      setBusy(false);
     }
   };
 
@@ -30,8 +34,9 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
       <label>Password</label>
       <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
       {err && <p className="error">{err}</p>}
-      <button className="btn" type="submit" style={{ marginTop: 12 }}>Sign in</button>
-      <p className="muted">Try: customer1@example.com / password123</p>
+      <button className="btn" type="submit" disabled={busy} style={{ marginTop: 12, opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
     </form>
   );
 }

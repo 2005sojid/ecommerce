@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { returnsApi, type ReturnReq } from "../api";
 
 export default function Returns() {
@@ -7,6 +8,8 @@ export default function Returns() {
   const [reason, setReason] = useState("");
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [params] = useSearchParams();
 
   const load = () => {
     setLoading(true);
@@ -18,13 +21,20 @@ export default function Returns() {
 
   useEffect(load, []);
 
+  useEffect(() => {
+    const oid = params.get("order_id");
+    if (oid) setOrderId(oid);
+  }, [params]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setMsg("");
     if (!orderId.trim() || !reason.trim()) {
       setMsg("Order ID and reason are required");
       return;
     }
+    setBusy(true);
     try {
       await returnsApi.create(orderId.trim(), reason.trim());
       setOrderId("");
@@ -33,6 +43,8 @@ export default function Returns() {
       load();
     } catch (e: any) {
       setMsg(e.response?.data?.detail || "Error submitting return");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -41,6 +53,9 @@ export default function Returns() {
       <h1>Returns</h1>
       <div className="card">
         <h2>Request a Return</h2>
+        <p className="muted" style={{ fontSize: 13 }}>
+          Tip: open the order from "My Orders" and click "Request return" to prefill this form.
+        </p>
         <form onSubmit={submit}>
           <div className="flex" style={{ marginBottom: 8 }}>
             <input
@@ -60,7 +75,9 @@ export default function Returns() {
               style={{ width: "100%" }}
             />
           </div>
-          <button className="btn" type="submit">Submit</button>
+          <button className="btn" type="submit" disabled={busy} style={{ opacity: busy ? 0.6 : 1 }}>
+            {busy ? "Submitting…" : "Submit"}
+          </button>
           {msg && <p className="muted">{msg}</p>}
         </form>
       </div>
