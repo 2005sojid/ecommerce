@@ -14,6 +14,14 @@ async def create(db: AsyncSession, user_id: uuid.UUID, payload: ReturnCreate) ->
         raise HTTPException(status.HTTP_403_FORBIDDEN, 'Order not found or not owned by user')
     if order.status not in (OrderStatus.delivered, OrderStatus.shipped):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Order must be delivered or shipped to request a return')
+    existing = await db.scalar(
+        select(Return).where(
+            Return.order_id == payload.order_id,
+            Return.status.in_(('pending', 'approved')),
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f'A {existing.status} return already exists for this order')
     item = Return(id=uuid.uuid4(), order_id=payload.order_id, user_id=user_id, status='pending', reason=payload.reason)
     db.add(item)
     await db.commit()

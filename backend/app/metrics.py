@@ -9,10 +9,6 @@ order_status_transitions = Counter('order_status_transitions_total', 'Order stat
 
 
 def _preinit_label_series() -> None:
-    """Force-register every known (label) tuple so /metrics exposes the
-    series with value 0 from the first scrape onwards. Without this,
-    Grafana shows 'No data' on a fresh stack until at least one increment
-    has happened for that exact label combination."""
     for status in ('success', 'sold_out', 'error', 'rate_limited'):
         flash_sale_claims.labels(status=status)
     for op in ('hit', 'miss', 'invalidate'):

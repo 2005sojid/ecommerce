@@ -15,12 +15,11 @@ class Settings(BaseSettings):
     INSTANCE_ID: str = '0'
     ENVIRONMENT: str = 'development'
 
-    # MinIO / object storage
     MINIO_ENDPOINT: str = 'minio:9000'
     MINIO_ACCESS_KEY: str = 'minioadmin'
     MINIO_SECRET_KEY: str = 'minioadmin'
     MINIO_BUCKET: str = 'product-images'
-    MINIO_PUBLIC_URL: str = 'http://localhost:9000'
+    MINIO_PUBLIC_URL: str = ''
     MINIO_SECURE: bool = False
 
     class Config:
@@ -28,7 +27,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Fail fast in production if placeholder secrets weren't overridden.
 if settings.ENVIRONMENT.lower() not in ('development', 'dev', 'test', 'testing'):
     if settings.JWT_SECRET == 'change-me-in-production':
         raise RuntimeError('Refusing to start: JWT_SECRET is still the default placeholder. Set it in .env.')

@@ -1,6 +1,6 @@
 import uuid
 from fastapi import HTTPException, status
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update as sa_update, delete as sa_delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.address import Address
 from app.schemas.address import AddressCreate, AddressUpdate
@@ -25,7 +25,7 @@ async def _count(db: AsyncSession, user_id: uuid.UUID) -> int:
 
 
 async def _unset_defaults(db: AsyncSession, user_id: uuid.UUID, exclude_id: uuid.UUID | None = None) -> None:
-    stmt = update(Address).where(Address.user_id == user_id, Address.is_default == True).values(is_default=False)
+    stmt = sa_update(Address).where(Address.user_id == user_id, Address.is_default == True).values(is_default=False)
     if exclude_id is not None:
         stmt = stmt.where(Address.id != exclude_id)
     await db.execute(stmt)
@@ -67,7 +67,7 @@ async def update(db: AsyncSession, user_id: uuid.UUID, address_id: uuid.UUID, pa
 
 async def delete(db: AsyncSession, user_id: uuid.UUID, address_id: uuid.UUID) -> None:
     addr = await get_for_user(db, user_id, address_id)
-    await db.execute(delete(Address).where(Address.id == address_id, Address.user_id == user_id))
+    await db.execute(sa_delete(Address).where(Address.id == address_id, Address.user_id == user_id))
     await db.commit()
     remaining = await db.scalar(select(func.count(Address.id)).where(Address.user_id == user_id)) or 0
     if remaining > 0:

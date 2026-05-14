@@ -1,23 +1,3 @@
-"""Snowflake ID generator (Alex Xu, System Design Vol.1 Ch.7).
-
-A Snowflake ID is a 64-bit integer composed of:
-
-    | 1 bit  | 41 bits     | 10 bits   | 12 bits   |
-    | sign=0 | timestamp   | worker_id | sequence  |
-
-- sign       : always 0 -> the integer fits in a signed 64-bit slot.
-- timestamp  : milliseconds since a custom epoch (2024-01-01 UTC).
-                41 bits gives ~69 years of room.
-- worker_id  : identifies the generator instance (0..1023).
-- sequence   : per-millisecond counter (0..4095). When it overflows we spin
-                until the next millisecond, guaranteeing monotonicity.
-
-Properties:
-- Monotonically increasing within a single generator.
-- Globally unique across up to 1024 generators (distinct worker_id).
-- Roughly time-sortable; can be decoded back into its parts.
-"""
-
 from __future__ import annotations
 
 import os

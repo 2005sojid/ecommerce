@@ -18,9 +18,6 @@ pwd = CryptContext(schemes=['bcrypt'], deprecated='auto')
 def slugify(s: str) -> str:
     return ''.join((c.lower() if c.isalnum() else '-' for c in s)).strip('-')
 
-# Curated library of real, name-matching product photos.
-# Primary + 3 gallery (different angles/views of the same product category).
-# All URLs verified HTTP 200 image/jpeg against the Unsplash CDN (stable, no auth).
 PRODUCT_IMAGE_LIBRARY: dict[str, dict[str, object]] = {
     'Wireless Headphones X200': {
         'primary': 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80',
@@ -247,9 +244,6 @@ PRODUCT_IMAGE_LIBRARY: dict[str, dict[str, object]] = {
         ],
     },
     'Atomic Habits': {
-        # Wikimedia-hosted cover not openly licensed; use a high-quality
-        # books-on-shelf photo as the canonical visual. Acceptable per spec:
-        # "if unavailable, generic stack of books works".
         'primary': 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800&q=80',
         'gallery': [
             'https://images.unsplash.com/photo-1512820790803-83ca734da794?w=800&q=80',
@@ -269,7 +263,6 @@ PRODUCT_IMAGE_LIBRARY: dict[str, dict[str, object]] = {
 
 
 def _img(keyword: str, lock: int, size: str = '600/450') -> str:
-    """LoremFlickr fallback for products not in PRODUCT_IMAGE_LIBRARY."""
     w, h = size.split('/')
     kw = keyword.replace(' ', ',')
     return f'https://loremflickr.com/{w}/{h}/{kw}?lock={lock}'
@@ -291,7 +284,6 @@ def _gallery_images(name: str, keyword: str, lock_base: int) -> list[str]:
 def gen_order_id() -> str:
     return f'ORD-{next_id():X}'
 CATEGORIES = ['Electronics', 'Clothing', 'Home & Kitchen', 'Sports', 'Books']
-# (name, description, price, image_keyword)
 PRODUCTS_BY_CAT = {
     'Electronics': [
         ('Wireless Headphones X200', 'Noise-cancelling over-ear headphones, 30h battery', '129.99', 'headphones'),

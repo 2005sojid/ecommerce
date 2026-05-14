@@ -1,8 +1,10 @@
+import logging
 import time
 import uuid
 from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.from_scratch.snowflake_id import next_id
 from app.metrics import checkout_duration, order_status_transitions, orders_created
@@ -16,6 +18,8 @@ from app.routers.ws import broadcast_inventory_change, broadcast_order_status
 from app.services import coupon_service, notification_center
 from app.services.cart_service import CartService, _parse_field
 from app.services.notification_service import publish_event
+
+logger = logging.getLogger(__name__)
 
 LOW_STOCK_THRESHOLD = 10
 
@@ -120,7 +124,12 @@ class OrderService:
         await db.flush()
         if applied_coupon_id is not None:
             await coupon_service.apply(db, user_id, applied_coupon_id, order.id)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError as exc:
+            await db.rollback()
+            logger.warning('checkout commit rejected by DB (likely duplicate coupon usage): %s', exc)
+            raise HTTPException(status.HTTP_409_CONFLICT, 'Could not finalize order — coupon may already be used. Please try again.')
         await db.refresh(order)
         await self.cart_service.clear(user_id)
         await publish_event('order.created', {'order_id': order.id})

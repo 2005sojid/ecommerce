@@ -50,29 +50,27 @@ Seeded accounts:
 
 ## Environment reference (`.env`)
 
-Defaults below match `.env.example` and `backend/app/config.py`. Anything not listed in `.env.example` has a default in `config.py` and only needs to be set when overriding
-
-| Variable | Default | Source |
-|---|---|---|
-| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `ecommerce` / `postgres` / `changeme` | `.env.example` |
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:changeme@postgres:5432/ecommerce` | `.env.example` |
-| `REDIS_URL` | `redis://redis:6379/0` | `.env.example` |
-| `RABBITMQ_USER` / `RABBITMQ_PASS` | `ecommerce` / `changeme` | `.env.example` |
-| `RABBITMQ_URL` | `amqp://ecommerce:changeme@rabbitmq:5672/` | `.env.example` |
-| `MEILISEARCH_URL` | `http://meilisearch:7700` | `.env.example` |
-| `MEILISEARCH_API_KEY` | `masterKeyDevelopmentOnlyChangeMe` | `.env.example` |
-| `JWT_SECRET` | `dev-secret-please-change-in-production-use-openssl-rand-hex-32` | `.env.example` |
-| `JWT_ALGORITHM` | `HS256` | `.env.example` |
-| `JWT_EXPIRY_MINUTES` | `30` | `.env.example` |
-| `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin` / `admin` | `.env.example` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://tempo:4317` | `.env.example` |
-| `OTEL_SERVICE_NAME` | `ecommerce-backend` | `.env.example` |
-| `ENVIRONMENT` | `development` (backend refuses to boot in any other value if `JWT_SECRET` / `MEILISEARCH_API_KEY` are still the placeholder) | `config.py` |
-| `INSTANCE_ID` | `0` in `config.py`; docker-compose sets `1` and `2` per backend replica (feeds the Snowflake `worker_id` and gates leader-only batch jobs) | `docker-compose.yml` |
-| `MINIO_ENDPOINT` / `MINIO_PUBLIC_URL` | `minio:9000` (internal) / `http://localhost:9000` (browser) | `config.py` |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | `minioadmin` / `minioadmin` | `config.py` |
-| `MINIO_BUCKET` / `MINIO_SECURE` | `product-images` / `false` | `config.py` |
-| `BENCH_API_BASE` | `http://localhost` — base URL the R6 benchmark hits; set to `http://nginx` when running inside the docker network | `scripts/benchmark.py` |
+| Variable | Default |
+|---|---|
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `ecommerce` / `postgres` / `changeme` |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:changeme@postgres:5432/ecommerce` |
+| `REDIS_URL` | `redis://redis:6379/0` |
+| `RABBITMQ_USER` / `RABBITMQ_PASS` / `RABBITMQ_URL` | `ecommerce` / `changeme` / `amqp://ecommerce:changeme@rabbitmq:5672/` |
+| `MEILISEARCH_URL` | `http://meilisearch:7700` |
+| `MEILISEARCH_API_KEY` | `masterKeyDevelopmentOnlyChangeMe` |
+| `JWT_SECRET` | `dev-secret-please-change-in-production-use-openssl-rand-hex-32` |
+| `JWT_ALGORITHM` | `HS256` |
+| `JWT_EXPIRY_MINUTES` | `30` |
+| `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin` / `admin` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://tempo:4317` |
+| `OTEL_SERVICE_NAME` | `ecommerce-backend` |
+| `ENVIRONMENT` | `development` |
+| `INSTANCE_ID` | `0` |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | `minioadmin` / `minioadmin` |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | `minioadmin` / `minioadmin` |
+| `MINIO_ENDPOINT` / `MINIO_PUBLIC_URL` | `minio:9000` / `(empty)` |
+| `MINIO_BUCKET` / `MINIO_SECURE` | `product-images` / `false` |
+| `BENCH_API_BASE` | `http://localhost` |
 
 ## Layout
 

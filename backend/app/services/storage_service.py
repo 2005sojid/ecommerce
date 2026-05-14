@@ -1,8 +1,3 @@
-"""MinIO-backed object storage for product images.
-
-Wraps the synchronous `minio` client in `asyncio.to_thread` so it can be
-awaited from FastAPI handlers.
-"""
 from __future__ import annotations
 
 import asyncio
@@ -103,7 +98,6 @@ class StorageService:
         return f'{self._public_url}/{self.bucket}/{key}'
 
     def key_from_url(self, url: str) -> str | None:
-        """Best-effort: parse the object key off a public URL."""
         prefix = f'{self._public_url}/{self.bucket}/'
         if url.startswith(prefix):
             return url[len(prefix):]

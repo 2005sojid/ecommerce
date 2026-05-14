@@ -1,13 +1,16 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import HTTPException, status
-from sqlalchemy import select, delete, update, func, or_
+from sqlalchemy import select, delete, update as sa_update, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.coupon import Coupon, CouponUsage
 from app.models.product import Product
 from app.schemas.coupon import CouponCreate, CouponUpdate, CouponValidationResult
+
+logger = logging.getLogger(__name__)
 
 
 async def validate(
@@ -54,27 +57,40 @@ async def validate(
 
 
 async def apply(db: AsyncSession, user_id: uuid.UUID, coupon_id: uuid.UUID, order_id: str) -> CouponUsage:
-    stmt = (
-        update(Coupon)
-        .where(
-            Coupon.id == coupon_id,
-            Coupon.is_active.is_(True),
-            or_(Coupon.max_uses.is_(None), Coupon.used_count < Coupon.max_uses),
-        )
-        .values(used_count=Coupon.used_count + 1)
-        .returning(Coupon.id)
-    )
-    res = await db.execute(stmt)
-    if res.scalar_one_or_none() is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon usage limit reached or coupon inactive')
-    usage = CouponUsage(id=uuid.uuid4(), coupon_id=coupon_id, user_id=user_id, order_id=order_id)
-    db.add(usage)
     try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon already used for this order')
-    return usage
+        snapshot = await db.get(Coupon, coupon_id)
+        if snapshot is None:
+            logger.warning('coupon.apply pre-check coupon_id=%s NOT FOUND', coupon_id)
+            raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon no longer exists')
+        logger.info(
+            'coupon.apply pre-check coupon_id=%s code=%s used_count=%s max_uses=%s is_active=%s',
+            coupon_id, snapshot.code, snapshot.used_count, snapshot.max_uses, snapshot.is_active,
+        )
+        stmt = (
+            sa_update(Coupon)
+            .where(
+                Coupon.id == coupon_id,
+                Coupon.is_active.is_(True),
+                or_(Coupon.max_uses.is_(None), Coupon.used_count < Coupon.max_uses),
+            )
+            .values(used_count=Coupon.used_count + 1)
+            .returning(Coupon.id)
+        )
+        res = await db.execute(stmt)
+        if res.scalar_one_or_none() is None:
+            logger.warning('coupon.apply REJECTED coupon_id=%s reason=limit_or_inactive', coupon_id)
+            raise HTTPException(status.HTTP_409_CONFLICT, 'Coupon usage limit reached or coupon inactive')
+        usage = CouponUsage(id=uuid.uuid4(), coupon_id=coupon_id, user_id=user_id, order_id=order_id)
+        db.add(usage)
+        return usage
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            'coupon.apply UNEXPECTED coupon_id=%s order_id=%s exc_type=%s exc_msg=%s',
+            coupon_id, order_id, type(exc).__name__, str(exc)[:300],
+        )
+        raise
 
 
 async def list_all(db: AsyncSession, page: int, per_page: int) -> tuple[list[Coupon], int]:

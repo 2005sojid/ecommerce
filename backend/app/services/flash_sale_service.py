@@ -25,13 +25,6 @@ class FlashSaleService:
         await self.redis.set(stock_key(sale.id), sale.remaining_stock)
 
     async def _atomic_decrement(self, key: str, sql_remaining: int) -> int:
-        """Decrement the Redis counter by 1.
-
-        If the key is missing (e.g., the Redis cache was wiped while the SQL
-        row still tracks `remaining_stock`), seed it from SQL atomically via a
-        Lua script so the very first claim after a Redis flap doesn't return
-        "sold out" for a sale that still has stock in the database.
-        Returns the new counter value (-1 if truly sold out)."""
         script = """
         if redis.call('EXISTS', KEYS[1]) == 0 then
             redis.call('SET', KEYS[1], ARGV[1])
@@ -71,7 +64,6 @@ class FlashSaleService:
             await db.commit()
         except Exception:
             await db.rollback()
-            # Restore the Redis counter — we already decremented it but the SQL claim failed.
             await self.redis.incrby(key, 1)
             flash_sale_claims.labels(status='error').inc()
             raise

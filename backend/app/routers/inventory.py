@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from app.deps import AdminUser, DBSession
 from app.models.inventory import Inventory
+from app.routers.ws import broadcast_inventory_change
 router = APIRouter(prefix='/api/inventory', tags=['Inventory'])
 
 @router.get('/{product_id}')
@@ -22,4 +23,5 @@ async def adjust_inventory(product_id: uuid.UUID, delta: int, _: AdminUser, db: 
         raise HTTPException(status.HTTP_409_CONFLICT, 'Resulting quantity would be negative')
     inv.quantity = new_qty
     await db.commit()
+    await broadcast_inventory_change(product_id, inv.quantity, source='admin_adjust')
     return {'product_id': str(product_id), 'quantity': inv.quantity, 'reserved': inv.reserved}

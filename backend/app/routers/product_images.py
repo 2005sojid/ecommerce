@@ -16,10 +16,8 @@ router = APIRouter(prefix='/api/products', tags=['ProductImages'])
 
 logger = logging.getLogger(__name__)
 
-# 5 MB hard cap
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-# Allowed content types and their canonical extension
 ALLOWED_CONTENT_TYPES: dict[str, str] = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
