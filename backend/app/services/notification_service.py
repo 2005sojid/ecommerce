@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Optional
@@ -8,6 +9,8 @@ logger = logging.getLogger(__name__)
 EXCHANGE_NAME = 'ecommerce'
 ORDER_QUEUE = 'order_pipeline'
 SEARCH_QUEUE = 'search_sync'
+PUBLISH_MAX_ATTEMPTS = 3
+
 
 class EventBus:
 
@@ -15,6 +18,7 @@ class EventBus:
         self.connection: Optional[AbstractRobustConnection] = None
         self.channel: Optional[AbstractRobustChannel] = None
         self.exchange: Optional[AbstractExchange] = None
+        self._reconnect_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         self.connection = await aio_pika.connect_robust(settings.RABBITMQ_URL)
@@ -29,14 +33,67 @@ class EventBus:
 
     async def close(self) -> None:
         if self.connection is not None and (not self.connection.is_closed):
-            await self.connection.close()
+            try:
+                await self.connection.close()
+            except Exception:
+                pass
+
+    def _channel_is_dead(self) -> bool:
+        try:
+            if self.connection is None or self.connection.is_closed:
+                return True
+            if self.channel is None or self.channel.is_closed:
+                return True
+        except AttributeError:
+            return True
+        return False
+
+    async def _force_reconnect(self) -> None:
+        async with self._reconnect_lock:
+            try:
+                if self.connection is not None and not self.connection.is_closed:
+                    await self.connection.close()
+            except Exception:
+                pass
+            self.connection = None
+            self.channel = None
+            self.exchange = None
+            await self.connect()
+
+    async def _ensure_connected(self) -> None:
+        if not self._channel_is_dead() and self.exchange is not None:
+            return
+        await self._force_reconnect()
 
     async def publish(self, routing_key: str, payload: dict) -> None:
-        if self.exchange is None:
-            logger.warning('EventBus not connected, dropping event %s', routing_key)
-            return
-        message = aio_pika.Message(body=json.dumps(payload, default=str).encode(), content_type='application/json', delivery_mode=aio_pika.DeliveryMode.PERSISTENT)
-        await self.exchange.publish(message, routing_key=routing_key)
+        message_body = json.dumps(payload, default=str).encode()
+        last_exc: Optional[BaseException] = None
+        for attempt in range(1, PUBLISH_MAX_ATTEMPTS + 1):
+            try:
+                await self._ensure_connected()
+                if self.exchange is None:
+                    raise RuntimeError('exchange is None after reconnect')
+                message = aio_pika.Message(
+                    body=message_body,
+                    content_type='application/json',
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                )
+                await self.exchange.publish(message, routing_key=routing_key)
+                if attempt > 1:
+                    logger.info('publish recovered on attempt %d (routing_key=%s)', attempt, routing_key)
+                return
+            except (AttributeError, aio_pika.exceptions.AMQPException, RuntimeError) as exc:
+                last_exc = exc
+                logger.warning('publish attempt %d/%d failed (%s) — forcing reconnect', attempt, PUBLISH_MAX_ATTEMPTS, exc)
+                try:
+                    await self._force_reconnect()
+                except Exception as reconnect_exc:
+                    logger.warning('reconnect attempt %d failed: %s', attempt, reconnect_exc)
+                    await asyncio.sleep(0.5 * attempt)
+        assert last_exc is not None
+        raise last_exc
+
+
 event_bus = EventBus()
 
 async def publish_event(routing_key: str, payload: dict) -> bool:

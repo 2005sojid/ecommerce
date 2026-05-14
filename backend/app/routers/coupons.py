@@ -1,16 +1,28 @@
 import uuid
 from fastapi import APIRouter, Query, status
 from fastapi.responses import Response
+from app.cache.redis_cache import redis_client
 from app.deps import AdminUser, CustomerUser, DBSession
 from app.schemas.coupon import CouponCreate, CouponOut, CouponUpdate, CouponValidate, CouponValidationResult
 from app.services import coupon_service
+from app.services.cart_service import CartService, _parse_field
 
 router = APIRouter(prefix='/api/coupons', tags=['Coupons'])
+
+_cart_service = CartService(redis_client)
 
 
 @router.post('/validate')
 async def validate_coupon(payload: CouponValidate, user: CustomerUser, db: DBSession) -> CouponValidationResult:
-    return await coupon_service.validate(db, user.id, payload.code, payload.order_total)
+    raw_cart = await _cart_service.get_raw(user.id)
+    product_ids: list[uuid.UUID] = []
+    for field in raw_cart.keys():
+        try:
+            pid, _ = _parse_field(field)
+            product_ids.append(pid)
+        except (ValueError, TypeError):
+            continue
+    return await coupon_service.validate(db, user.id, payload.code, payload.order_total, product_ids=product_ids)
 
 
 @router.get('')

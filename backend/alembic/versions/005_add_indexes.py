@@ -11,12 +11,10 @@ def upgrade() -> None:
     op.create_index('ix_orders_user_created', 'orders', ['user_id', 'created_at'])
     op.create_index('ix_order_events_order_ts', 'order_events', ['order_id', 'timestamp'])
     op.create_index('ix_reviews_product_id', 'reviews', ['product_id'])
-    op.create_index('ix_inventory_product_id', 'inventory', ['product_id'], unique=True)
     op.execute('CREATE INDEX ix_flash_sales_active ON flash_sales(start_at, end_at) WHERE is_active = true')
 
 def downgrade() -> None:
     op.execute('DROP INDEX IF EXISTS ix_flash_sales_active')
-    op.drop_index('ix_inventory_product_id', table_name='inventory')
     op.drop_index('ix_reviews_product_id', table_name='reviews')
     op.drop_index('ix_order_events_order_ts', table_name='order_events')
     op.drop_index('ix_orders_user_created', table_name='orders')

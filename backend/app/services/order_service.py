@@ -1,12 +1,10 @@
-import random
-import string
 import time
 import uuid
-from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.from_scratch.snowflake_id import next_id
 from app.metrics import checkout_duration, order_status_transitions, orders_created
 from app.models.inventory import Inventory
 from app.models.order import Order, OrderItem, OrderStatus
@@ -32,9 +30,7 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
 }
 
 def generate_order_id() -> str:
-    ts = datetime.now(timezone.utc).strftime('%y%m%d')
-    rnd = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    return f'ORD{ts}{rnd}'[:20]
+    return f'ORD-{next_id():X}'
 
 class OrderService:
 
@@ -105,7 +101,8 @@ class OrderService:
         coupon_meta: dict | None = None
         applied_coupon_id: uuid.UUID | None = None
         if coupon_code:
-            result = await coupon_service.validate(db, user_id, coupon_code, total)
+            cart_product_ids = list({it.product_id for it in order_items})
+            result = await coupon_service.validate(db, user_id, coupon_code, total, product_ids=cart_product_ids)
             if not result.valid:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Invalid coupon: {result.message}')
             applied_coupon_id = result.coupon_id
@@ -161,6 +158,11 @@ class OrderService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, 'Order not found')
         old_status = order.status
         if new_status == old_status:
+            if tracking_number is not None and tracking_number != order.tracking_number:
+                order.tracking_number = tracking_number
+                db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=old_status.value if old_status else None, to_status=new_status.value, event_metadata={'source': 'admin', 'tracking_number': tracking_number}))
+                await db.commit()
+                await db.refresh(order)
             return order
         allowed = ALLOWED_TRANSITIONS.get(old_status, set())
         if new_status not in allowed:
@@ -176,10 +178,31 @@ class OrderService:
             event_meta['reason'] = reason
         if tracking_number is not None:
             event_meta['tracking_number'] = tracking_number
+        restocks: list[tuple[uuid.UUID, int]] = []
+        if new_status == OrderStatus.cancelled and old_status not in (OrderStatus.shipped, OrderStatus.delivered):
+            items = (await db.execute(select(OrderItem).where(OrderItem.order_id == order.id))).scalars().all()
+            for it in items:
+                if it.variant_id is not None:
+                    variant = (await db.execute(
+                        select(ProductVariant).where(ProductVariant.id == it.variant_id).with_for_update()
+                    )).scalar_one_or_none()
+                    if variant is not None:
+                        variant.stock_quantity += it.quantity
+                        restocks.append((it.product_id, variant.stock_quantity))
+                else:
+                    inv = (await db.execute(
+                        select(Inventory).where(Inventory.product_id == it.product_id).with_for_update()
+                    )).scalar_one_or_none()
+                    if inv is not None:
+                        inv.quantity += it.quantity
+                        restocks.append((it.product_id, inv.quantity))
+            event_meta['restocked_items'] = len(items)
         db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=old_status.value if old_status else None, to_status=new_status.value, event_metadata=event_meta))
         await db.commit()
         await db.refresh(order)
         await broadcast_order_status(order.id, new_status.value, old_status.value if old_status else None)
+        for pid, new_qty in restocks:
+            await broadcast_inventory_change(pid, new_qty, source='cancel')
         order_status_transitions.labels(from_status=old_status.value if old_status else 'none', to_status=new_status.value).inc()
         try:
             await notification_center.create(

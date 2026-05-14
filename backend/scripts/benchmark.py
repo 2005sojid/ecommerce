@@ -1,4 +1,5 @@
 import asyncio
+import os
 import statistics
 import time
 from typing import Any
@@ -6,9 +7,21 @@ import httpx
 from sqlalchemy import text
 from app.cache.redis_cache import redis_client
 from app.database import async_session, engine
-API_BASE = 'http://localhost:8000'
-QUERIES = {'list products in category': 'SELECT * FROM products WHERE category_id = (SELECT id FROM categories LIMIT 1) AND is_active = true ORDER BY created_at DESC LIMIT 20', 'get product detail': 'SELECT p.*, i.quantity, i.reserved FROM products p LEFT JOIN inventory i ON i.product_id = p.id LIMIT 1', 'user orders sorted': 'SELECT * FROM orders WHERE user_id = (SELECT id FROM users LIMIT 1) ORDER BY created_at DESC LIMIT 20', 'order events by order': 'SELECT * FROM order_events WHERE order_id = (SELECT id FROM orders LIMIT 1) ORDER BY timestamp DESC'}
-INDEX_NAMES = ['ix_products_category_id', 'ix_products_active_price', 'ix_orders_user_created', 'ix_order_events_order_ts']
+API_BASE = os.environ.get('BENCH_API_BASE', 'http://localhost')
+QUERIES = {
+    'list products in category': "SELECT * FROM products WHERE category_id = (SELECT id FROM categories LIMIT 1) AND is_active = true ORDER BY created_at DESC LIMIT 20",
+    'get product detail': "SELECT p.*, i.quantity, i.reserved FROM products p LEFT JOIN inventory i ON i.product_id = p.id LIMIT 1",
+    'user orders sorted': "SELECT * FROM orders WHERE user_id = (SELECT id FROM users LIMIT 1) ORDER BY created_at DESC LIMIT 20",
+    'order events by order': "SELECT * FROM order_events WHERE order_id = (SELECT id FROM orders LIMIT 1) ORDER BY timestamp DESC",
+    'reviews for product': "SELECT * FROM reviews WHERE product_id = (SELECT id FROM products LIMIT 1) ORDER BY created_at DESC LIMIT 20",
+}
+INDEX_DEFS: list[tuple[str, str]] = [
+    ('ix_products_category_id', 'CREATE INDEX IF NOT EXISTS ix_products_category_id ON products(category_id)'),
+    ('ix_products_active_price', 'CREATE INDEX IF NOT EXISTS ix_products_active_price ON products(is_active, price)'),
+    ('ix_orders_user_created', 'CREATE INDEX IF NOT EXISTS ix_orders_user_created ON orders(user_id, created_at)'),
+    ('ix_order_events_order_ts', 'CREATE INDEX IF NOT EXISTS ix_order_events_order_ts ON order_events(order_id, timestamp)'),
+    ('ix_reviews_product_id', 'CREATE INDEX IF NOT EXISTS ix_reviews_product_id ON reviews(product_id)'),
+]
 
 async def explain_analyze(sql: str) -> float:
     async with async_session() as db:
@@ -18,15 +31,13 @@ async def explain_analyze(sql: str) -> float:
 
 async def drop_indexes() -> None:
     async with engine.begin() as conn:
-        for name in INDEX_NAMES:
+        for name, _ in INDEX_DEFS:
             await conn.execute(text(f'DROP INDEX IF EXISTS {name}'))
 
 async def recreate_indexes() -> None:
     async with engine.begin() as conn:
-        await conn.execute(text('CREATE INDEX IF NOT EXISTS ix_products_category_id ON products(category_id)'))
-        await conn.execute(text('CREATE INDEX IF NOT EXISTS ix_products_active_price ON products(is_active, price)'))
-        await conn.execute(text('CREATE INDEX IF NOT EXISTS ix_orders_user_created ON orders(user_id, created_at)'))
-        await conn.execute(text('CREATE INDEX IF NOT EXISTS ix_order_events_order_ts ON order_events(order_id, timestamp)'))
+        for _, ddl in INDEX_DEFS:
+            await conn.execute(text(ddl))
 
 async def measure_endpoint(client: httpx.AsyncClient, url: str, runs: int=5) -> float:
     times: list[float] = []

@@ -5,6 +5,7 @@ import uuid
 import aio_pika
 from sqlalchemy import select
 from app.database import async_session
+from app.metrics import order_status_transitions
 from app.models.order import Order, OrderStatus
 from app.models.order_event import OrderEvent
 from app.routers.ws import broadcast_order_status
@@ -29,6 +30,7 @@ async def _advance(order_id: str, new_status: OrderStatus) -> None:
         db.add(OrderEvent(id=uuid.uuid4(), order_id=order.id, from_status=old_status.value if old_status else None, to_status=new_status.value, event_metadata={'source': 'pipeline'}))
         await db.commit()
     logger.info('order %s: %s -> %s', order_id, old_status.value if old_status else None, new_status.value)
+    order_status_transitions.labels(from_status=old_status.value if old_status else 'none', to_status=new_status.value).inc()
     await broadcast_order_status(order_id, new_status.value, old_status.value if old_status else None)
 
 async def _handle(message: aio_pika.IncomingMessage) -> None:

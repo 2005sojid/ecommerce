@@ -97,7 +97,8 @@ async def update_status(order_id: str, payload: OrderStatusUpdate, user: Current
             raise HTTPException(status.HTTP_403_FORBIDDEN, 'Sellers can only advance through fulfilment statuses')
     else:
         raise HTTPException(status.HTTP_403_FORBIDDEN, 'Forbidden')
-    order = await _order_service.update_status(order_id, payload.status, payload.reason, db, tracking_number=payload.tracking_number)
+    effective_tracking = payload.tracking_number if user.role != UserRole.customer else None
+    order = await _order_service.update_status(order_id, payload.status, payload.reason, db, tracking_number=effective_tracking)
     return OrderOut.model_validate(order)
 
 @router.get('/{order_id}/events', response_model=list[OrderEventOut])

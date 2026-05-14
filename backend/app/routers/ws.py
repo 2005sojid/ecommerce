@@ -6,9 +6,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from jose import JWTError
+from sqlalchemy import func, select
 from app.cache.redis_cache import redis_client
 from app.database import async_session
-from app.models.order import Order
+from app.models.order import Order, OrderItem
+from app.models.product import Product
+from app.models.seller import Seller
 from app.models.user import User, UserRole
 from app.services.auth_service import decode_token
 logger = logging.getLogger(__name__)
@@ -127,12 +130,23 @@ async def order_tracking(websocket: WebSocket, order_id: str, token: str | None=
         return
     async with async_session() as db:
         order = await db.get(Order, order_id)
-    if order is None:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason='Order not found')
-        return
-    if order.user_id != user.id and user.role != UserRole.admin:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason='Forbidden')
-        return
+        if order is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason='Order not found')
+            return
+        allowed = order.user_id == user.id or user.role == UserRole.admin
+        if not allowed and user.role == UserRole.seller:
+            seller = (await db.execute(select(Seller).where(Seller.user_id == user.id))).scalar_one_or_none()
+            if seller is not None:
+                owns = await db.scalar(
+                    select(func.count())
+                    .select_from(OrderItem)
+                    .join(Product, Product.id == OrderItem.product_id)
+                    .where(OrderItem.order_id == order_id, Product.seller_id == seller.id)
+                )
+                allowed = bool(owns)
+        if not allowed:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason='Forbidden')
+            return
     channel = f'order:{order_id}'
     await manager.connect(channel, websocket)
     await websocket.send_json({'event': 'subscribed', 'order_id': order_id, 'current_status': order.status.value, 'timestamp': datetime.now(timezone.utc).isoformat()})

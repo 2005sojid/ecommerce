@@ -1,10 +1,6 @@
-# BPMN — Event Pipelines (R10)
+# BPMN. Event Pipelines
 
-Textual descriptions of the runtime pipelines as Mermaid flowcharts. For the report they are imported into bpmn.io / draw.io and exported as PNG/SVG.
-
----
-
-## BPMN 1 — Order Fulfilment Pipeline
+## BPMN 1. Order Fulfilment Pipeline
 
 ```mermaid
 flowchart LR
@@ -21,15 +17,15 @@ flowchart LR
     Confirm --> Process[Advance: processing<br/>delay 0.5s]
     Process --> Pack[Advance: packed<br/>delay 3.0s]
     Pack --> Ship[Advance: shipped<br/>delay 1.0s]
-    Ship --> Delivered[Manual: admin PATCH /status<br/>optional tracking_number]
+    Ship --> Delivered[Advance: delivered<br/>delay 5.0s]
     Delivered --> EndOk([End: delivered])
 ```
 
-Stock is decremented synchronously at checkout (`order_service.checkout`). When a `variant_id` is on the cart row the lock and decrement target `product_variants`; otherwise legacy `inventory`. Insufficient stock raises HTTP 409 before any event is published, so the pipeline has no cancel branch. Each transition writes a row to `order_events`, broadcasts the new status over WebSocket (via the Redis pub/sub-backed manager), and republishes the next routing key on the `ecommerce` exchange. Auto-advance pipeline implemented in `app/workers/order_pipeline.py` (`NEXT_STAGE` map) terminates at `shipped`; `delivered` is reached only via admin `PATCH /api/orders/{id}/status` (which also accepts an optional `tracking_number`). Reaching `delivered` or `shipped` unlocks Return creation.
+Stock is decremented synchronously at checkout (`order_service.checkout`). When a `variant_id` is on the cart row the lock and decrement target `product_variants`, otherwise legacy `inventory`. Insufficient stock raises HTTP 409 before any event is published, so the pipeline has no cancel branch. Each transition writes a row to `order_events`, broadcasts the new status over WebSocket, and republishes the next routing key on the `ecommerce` exchange. The auto-advance worker in `app/workers/order_pipeline.py` runs the full chain `created → confirmed → processing → packed → shipped → delivered`. Sellers can also drive transitions manually through `shipped` (with an optional `tracking_number`) via `PATCH /api/orders/{id}/status`, admins through `delivered`, and customers can cancel while the order is still `pending`. Reaching `shipped` or `delivered` unlocks Return creation.
 
 ---
 
-## BPMN 2 — Daily Sales Batch
+## BPMN 2. Daily Sales Batch
 
 ```mermaid
 flowchart LR
@@ -42,11 +38,11 @@ flowchart LR
     Log --> End([End])
 ```
 
-Aggregation (`order_count`, `total_revenue`, `unique_customers`, filtered to `status <> 'cancelled'`) lives in the materialized view itself, defined in `alembic/versions/006_mv_daily_sales.py`. Implementation: `app/batch/daily_sales.py`.
+Aggregation (`order_count`, `total_revenue`, `unique_customers`, filtered to `status <> 'cancelled'`) lives in the materialized view itself, defined in `alembic/versions/006_mv_daily_sales.py`. Implementation: `app/batch/daily_sales.py`
 
 ---
 
-## BPMN 3 — Search Index Sync
+## BPMN 3. Search Index Sync
 
 ```mermaid
 flowchart LR
@@ -59,11 +55,11 @@ flowchart LR
     Remove --> End2([End])
 ```
 
-Implementation: `app/workers/search_sync.py`. Queue `search_sync` is bound to exchange `ecommerce` by routing key `product.*`.
+Implementation: `app/workers/search_sync.py`. Queue `search_sync` is bound to exchange `ecommerce` by routing key `product.*`
 
 ---
 
-## BPMN 4 — Daily Settlement Batch
+## BPMN 4. Daily Settlement Batch
 
 ```mermaid
 flowchart LR
@@ -77,7 +73,7 @@ Implementation: `app/batch/daily_settlement.py`. Sellers view payouts via `GET /
 
 ---
 
-## BPMN 5 — Abandoned Cart Batch
+## BPMN 5. Abandoned Cart Batch
 
 ```mermaid
 flowchart LR
@@ -97,7 +93,7 @@ Implementation: `app/batch/abandoned_cart.py`. The sentinel TTL ensures at most 
 
 ---
 
-## BPMN 6 — WebSocket Cross-Replica Fanout
+## BPMN 6. WebSocket Cross-Replica Fanout
 
 ```mermaid
 flowchart LR
@@ -115,7 +111,7 @@ Implementation: `app/routers/ws.py`. `ConnectionManager.broadcast(channel, paylo
 
 ---
 
-## BPMN 7 — Product Image Upload
+## BPMN 7. Product Image Upload
 
 ```mermaid
 flowchart LR
@@ -141,4 +137,4 @@ Implementation:
 - Storage: `backend/app/services/storage_service.py` — sync `minio` SDK wrapped with `asyncio.to_thread`; methods `upload`, `delete`, `public_url`, `key_from_url`.
 - Bucket bootstrap: `minio-init` one-shot container (in `docker-compose.yml`) runs `mc anonymous set download local/product-images` so the bucket is publicly readable. The backend `depends_on` it.
 - Frontend: `frontend/src/components/Carousel.tsx` (display) and the dropzone + upload-progress UI in `frontend/src/pages/seller/SellerProducts.tsx`. `imagesApi.upload(product_id, file, { alt, position, onProgress })` in `frontend/src/api.ts` posts the `FormData` with an `onUploadProgress` hook so the bar reflects real network progress.
-- Seeder: `backend/seeds/seed.py` populates `Product.image_url` from `PRODUCT_IMAGE_LIBRARY` (curated Unsplash CDN URLs, 1 primary + 3 gallery per product); no MinIO write at seed time so the database has displayable images even before any upload.
+- Seeder: `backend/seeds/seed.py` populates `Product.image_url` from `PRODUCT_IMAGE_LIBRARY` (curated Unsplash CDN URLs, 1 primary + 3 gallery per product). No MinIO write at seed time so the database has displayable images even before any upload.

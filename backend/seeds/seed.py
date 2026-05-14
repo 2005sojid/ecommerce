@@ -1,6 +1,5 @@
 import asyncio
 import random
-import string
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -8,8 +7,9 @@ from passlib.context import CryptContext
 from sqlalchemy import text
 from app.cache.redis_cache import redis_client
 from app.database import async_session, engine
+from app.from_scratch.snowflake_id import next_id
 from app.services.search_service import search_service
-from app.models import Category, Product, Inventory, User, UserRole, Order, OrderItem, OrderEvent, OrderStatus, Review, FlashSale, ProductVariant, Seller, Address, Coupon, Return, Conversation, Message
+from app.models import Category, Product, Inventory, User, UserRole, Order, OrderItem, OrderEvent, OrderStatus, Review, FlashSale, ProductVariant, Seller, Address, Coupon, Return, Conversation, Message, Settlement, Wishlist
 from app.models.notification import Notification
 from app.models.product_image import ProductImage
 from app.services.flash_sale_service import stock_key
@@ -289,9 +289,7 @@ def _gallery_images(name: str, keyword: str, lock_base: int) -> list[str]:
     return [_img(keyword, lock=lock_base + pos, size='800/600') for pos in range(3)]
 
 def gen_order_id() -> str:
-    ts = datetime.now(timezone.utc).strftime('%y%m%d')
-    rnd = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    return f'ORD{ts}{rnd}'[:20]
+    return f'ORD-{next_id():X}'
 CATEGORIES = ['Electronics', 'Clothing', 'Home & Kitchen', 'Sports', 'Books']
 # (name, description, price, image_keyword)
 PRODUCTS_BY_CAT = {
@@ -423,12 +421,12 @@ async def seed(force: bool=False) -> None:
         home_streets = ['Amir Temur Avenue', 'Mustaqillik Street', 'Shota Rustaveli Street', 'Navoi Street', 'Bobur Street']
         office_streets = ['Buyuk Ipak Yuli Street', 'Mirzo Ulugbek Avenue', 'Afrosiab Street', 'Yunusabad Avenue']
         tashkent_postal = ['100000', '100007', '100011', '100015', '100047', '100100']
-        for u in users[:2]:
+        for u in users:
             db.add(Address(id=uuid.uuid4(), user_id=u.id, label='Home', recipient_name=u.name, line1=f'{random.randint(1, 120)} {random.choice(home_streets)}', line2=f'Apt {random.randint(1, 90)}', city='Tashkent', state='Tashkent', postal_code=random.choice(tashkent_postal), country='UZ', phone=_uz_phone(), is_default=True))
             if random.random() < 0.5:
                 db.add(Address(id=uuid.uuid4(), user_id=u.id, label='Office', recipient_name=u.name, line1=f'{random.randint(1, 60)} {random.choice(office_streets)}', line2=f'Floor {random.randint(2, 12)}', city='Tashkent', state='Tashkent', postal_code=random.choice(tashkent_postal), country='UZ', phone=None, is_default=False))
-        coupons_spec = [('WELCOME10', 'percent', Decimal('10'), 'platform', None, None, 100), ('SAVE5', 'fixed', Decimal('5.00'), 'platform', Decimal('25.00'), 200, 500), ('MEGA20', 'percent', Decimal('20'), 'seller', sellers[0].id, None, 50)]
-        for code, dtype, dvalue, scope, min_or_seller, min_amt, max_uses in coupons_spec:
+        coupons_spec = [('WELCOME10', 'percent', Decimal('10'), 'platform', None, 100), ('SAVE5', 'fixed', Decimal('5.00'), 'platform', Decimal('25.00'), 500), ('MEGA20', 'percent', Decimal('20'), 'seller', sellers[0].id, 50)]
+        for code, dtype, dvalue, scope, min_or_seller, max_uses in coupons_spec:
             if scope == 'seller':
                 seller_id_val = min_or_seller
                 min_order_val = None
@@ -441,22 +439,34 @@ async def seed(force: bool=False) -> None:
         now = datetime.now(timezone.utc)
         delivered_order_id: str | None = None
         delivered_order_user_id: uuid.UUID | None = None
+        shipped_order_id: str | None = None
+        shipped_order_user_id: uuid.UUID | None = None
         for n in range(7):
-            user = random.choice(users)
+            if n == 0:
+                user = users[0]
+                final_status = OrderStatus.delivered
+            elif n == 1:
+                user = users[0]
+                final_status = OrderStatus.shipped
+            else:
+                user = random.choice(users)
+                final_status = random.choice(statuses_pipeline)
             chosen = random.sample(products, k=random.randint(1, 3))
             items_data = [(p, random.randint(1, 3)) for p in chosen]
             total = sum((p.price * qty for (p, qty) in items_data))
-            final_status = OrderStatus.delivered if n == 0 else random.choice(statuses_pipeline)
             uz_cities = [('Tashkent', 'Tashkent', '100000'), ('Samarkand', 'Samarqand', '140100'), ('Bukhara', 'Bukhoro', '200100'), ('Andijan', 'Andijon', '170100'), ('Namangan', 'Namangan', '160100'), ('Fergana', 'Fargona', '150100')]
             uz_streets = ['Amir Temur Avenue', 'Mustaqillik Street', 'Navoi Street', 'Bobur Street', 'Ibn Sino Street', 'Furqat Street']
             city_name, region, postal = random.choice(uz_cities)
-            shipping = f'{random.choice(customer_names + [u.name for u in [admin]])}, {random.randint(1, 200)} {random.choice(uz_streets)}, Apt {random.randint(1, 90)}, {city_name}, {region} region, {postal}, Uzbekistan, Tel: +998{random.choice(uz_operator_codes)}{random.randint(1000000, 9999999)}'
+            shipping = f'{random.choice(customer_names)}, {random.randint(1, 200)} {random.choice(uz_streets)}, Apt {random.randint(1, 90)}, {city_name}, {region} region, {postal}, Uzbekistan, Tel: +998{random.choice(uz_operator_codes)}{random.randint(1000000, 9999999)}'
             order = Order(id=gen_order_id(), user_id=user.id, status=final_status, total_amount=total, shipping_address=shipping)
             db.add(order)
             await db.flush()
             if n == 0:
                 delivered_order_id = order.id
                 delivered_order_user_id = user.id
+            elif n == 1:
+                shipped_order_id = order.id
+                shipped_order_user_id = user.id
             for (p, qty) in items_data:
                 db.add(OrderItem(id=uuid.uuid4(), order_id=order.id, product_id=p.id, quantity=qty, unit_price=p.price))
             prev = None
@@ -476,10 +486,17 @@ async def seed(force: bool=False) -> None:
             if (u.id, p.id) in seen_pairs:
                 continue
             seen_pairs.add((u.id, p.id))
-            db.add(Review(id=uuid.uuid4(), user_id=u.id, product_id=p.id, rating=random.randint(3, 5), comment=random.choice(['Great!', 'Solid quality.', 'Recommended.', 'As described.', None])))
+            db.add(Review(id=uuid.uuid4(), user_id=u.id, product_id=p.id, rating=random.randint(2, 5), comment=random.choice(['Great!', 'Solid quality.', 'Recommended.', 'As described.', None])))
+        for _ in range(20):
+            u = random.choice(users)
+            p = random.choice(products)
+            if (u.id, p.id) not in seen_pairs:
+                seen_pairs.add((u.id, p.id))
+                db.add(Review(id=uuid.uuid4(), user_id=u.id, product_id=p.id, rating=2, comment='Looked nothing like the photos — needs moderation.', is_approved=False))
+                break
         await db.flush()
         now_dt = datetime.now(timezone.utc)
-        flash_specs = [(random.choice(products), -timedelta(minutes=10), timedelta(hours=6), 100), (random.choice(products), -timedelta(minutes=30), timedelta(hours=2), 50), (random.choice(products), timedelta(hours=1), timedelta(hours=4), 200)]
+        flash_specs = [(random.choice(products), -timedelta(minutes=10), timedelta(hours=6), 100), (random.choice(products), -timedelta(minutes=30), timedelta(hours=2), 50), (random.choice(products), -timedelta(minutes=5), timedelta(hours=4), 200)]
         flash_sales: list[FlashSale] = []
         for (product, start_offset, duration, stock) in flash_specs:
             sale = FlashSale(id=uuid.uuid4(), product_id=product.id, sale_price=product.price * Decimal('0.5'), original_price=product.price, start_at=now_dt + start_offset, end_at=now_dt + start_offset + duration, initial_stock=stock, remaining_stock=stock, is_active=True)
@@ -487,6 +504,14 @@ async def seed(force: bool=False) -> None:
             flash_sales.append(sale)
         if delivered_order_id is not None and delivered_order_user_id is not None:
             db.add(Return(id=uuid.uuid4(), order_id=delivered_order_id, user_id=delivered_order_user_id, status='pending', reason='Item arrived with a minor scratch.', refund_amount=None, admin_note=None))
+        if shipped_order_id is not None and shipped_order_user_id is not None:
+            db.add(Return(id=uuid.uuid4(), order_id=shipped_order_id, user_id=shipped_order_user_id, status='approved', reason='Wrong size, exchange requested.', refund_amount=Decimal('15.00'), admin_note='Approved — refund queued.'))
+        wishlist_products = random.sample(products, k=min(3, len(products)))
+        for wp in wishlist_products:
+            db.add(Wishlist(id=uuid.uuid4(), user_id=users[0].id, product_id=wp.id))
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+        db.add(Settlement(id=uuid.uuid4(), seller_id=sellers[0].id, settlement_date=yesterday, gross_revenue=Decimal('250.00'), fees=Decimal('12.50'), net_payout=Decimal('237.50'), order_count=3))
+        db.add(Settlement(id=uuid.uuid4(), seller_id=sellers[1].id, settlement_date=yesterday, gross_revenue=Decimal('180.00'), fees=Decimal('9.00'), net_payout=Decimal('171.00'), order_count=2))
         conv = Conversation(id=uuid.uuid4(), buyer_id=users[0].id, seller_id=sellers[0].id)
         db.add(conv)
         await db.flush()

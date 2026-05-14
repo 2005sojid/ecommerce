@@ -6,10 +6,18 @@ from sqlalchemy import select, delete, update, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.coupon import Coupon, CouponUsage
+from app.models.product import Product
 from app.schemas.coupon import CouponCreate, CouponUpdate, CouponValidationResult
 
 
-async def validate(db: AsyncSession, user_id: uuid.UUID, code: str, order_total: Decimal) -> CouponValidationResult:
+async def validate(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    code: str,
+    order_total: Decimal,
+    *,
+    product_ids: list[uuid.UUID] | None = None,
+) -> CouponValidationResult:
     stmt = select(Coupon).where(func.lower(Coupon.code) == code.strip().lower())
     coupon = await db.scalar(stmt)
     if coupon is None:
@@ -25,6 +33,15 @@ async def validate(db: AsyncSession, user_id: uuid.UUID, code: str, order_total:
         return CouponValidationResult(valid=False, message='Coupon usage limit reached')
     if coupon.min_order_amount is not None and order_total < coupon.min_order_amount:
         return CouponValidationResult(valid=False, message=f'Order total must be at least {coupon.min_order_amount}')
+    if coupon.scope == 'seller' and coupon.seller_id is not None:
+        if not product_ids:
+            return CouponValidationResult(valid=False, message='Coupon applies only to specific sellers — add eligible items to your cart')
+        match = await db.scalar(
+            select(func.count(Product.id))
+            .where(Product.id.in_(product_ids), Product.seller_id == coupon.seller_id)
+        )
+        if not match:
+            return CouponValidationResult(valid=False, message='Coupon does not apply to items in your cart')
     if coupon.discount_type == 'percent':
         discount = (order_total * coupon.discount_value / Decimal('100')).quantize(Decimal('0.01'))
         if discount > order_total:
